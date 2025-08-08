@@ -55,7 +55,7 @@ export function calculateForecast(input: ForecastInput): ForecastResult {
   // Sort events by date
   events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   
-  // Calculate running balance
+  // Calculate running balance (only from startDate onward)
   const timeline: Array<{ date: ISODate; balance: number; event?: string }> = [];
   let currentBalance = initialBalance;
   let minBalance = currentBalance;
@@ -63,7 +63,10 @@ export function calculateForecast(input: ForecastInput): ForecastResult {
   // Add starting point
   timeline.push({ date: startDate, balance: currentBalance });
   
-  events.forEach(event => {
+  const startTs = new Date(startDate).getTime();
+  const futureEvents = events.filter(e => new Date(e.date).getTime() >= startTs);
+  
+  futureEvents.forEach(event => {
     currentBalance += event.amount;
     timeline.push({
       date: event.date,

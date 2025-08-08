@@ -49,7 +49,7 @@ export function runSingle(
   const buffer = opts.buffer ?? 0;
   
   // Generate pay dates using existing util
-  const payDates: ISODate[] = calculatePayDates(pay.frequency, startDate, months);
+  const payDates: ISODate[] = calculatePayDates(pay.frequency, pay.anchorDate, months);
   
   // Adapter: call existing calculateForecast with the shapes it expects.
   const result = calculateForecast({
@@ -80,8 +80,8 @@ export function runJoint(
   opts: RunJointOptions
 ): ForecastResult {
   const months = opts.months ?? 12;
-  const payDatesA: ISODate[] = calculatePayDates(payA.frequency, startDate, months);
-  const payDatesB: ISODate[] = calculatePayDates(payB.frequency, startDate, months);
+  const payDatesA: ISODate[] = calculatePayDates(payA.frequency, payA.anchorDate, months);
+  const payDatesB: ISODate[] = calculatePayDates(payB.frequency, payB.anchorDate, months);
 
   const result = calculateForecastFromMany({
     startDate,

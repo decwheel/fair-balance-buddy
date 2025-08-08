@@ -155,7 +155,7 @@ const Index = () => {
       const allBills = state.bills;
 
       if (state.mode === 'single') {
-        const baselineDeposit = 500; // Initial guess
+        const baselineDeposit = 150; // Better initial guess
         const optimalDeposit = findDepositSingle(
           today,
           state.userA.paySchedule!,
