@@ -41,34 +41,54 @@ export interface BillPdfParseResult {
 
 // Mock PDF text extraction for MVP
 export async function extractBillPdfText(file: File): Promise<string> {
-  // In production, this would use PDF.js or similar
-  // For MVP, return mock ESB bill text
-  return `
-ESB Networks
-Electricity Bill
+  try {
+    const lower = file.name.toLowerCase();
+    const isPdf = file.type.includes('pdf') || lower.endsWith('.pdf');
 
-Customer: John Smith
-Address: 123 Main Street, Dublin
+    if (!isPdf) {
+      // Not a PDF: try to read as text (may be empty for images)
+      try {
+        return await file.text();
+      } catch {
+        return '';
+      }
+    }
 
-Billing Period: 01/01/2024 - 31/01/2024 (30 days)
-Meter Type: Smart TOU
-Plan: Smart Drive
+    // Read PDF bytes
+    const data = await file.arrayBuffer();
 
-Standing Charge: €0.2850 per day
-VAT: 13.5%
+    // Lazy-load pdf.js to keep bundle light
+    const pdfjs: any = await import('pdfjs-dist');
 
-Usage Charges:
-Peak (17:00-19:00): 45.2 kWh @ €0.4200 per kWh = €18.98
-Day (08:00-23:00): 234.8 kWh @ €0.2100 per kWh = €49.31  
-Night (23:00-08:00): 189.6 kWh @ €0.1200 per kWh = €22.75
+    // Try to spin up a dedicated worker (Vite supports ?worker import)
+    try {
+      // @ts-ignore - Vite's ?worker import typing
+      const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?worker')).default;
+      if (pdfjs?.GlobalWorkerOptions) {
+        pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
+      }
+    } catch (_) {
+      // Fallback: rely on default worker
+    }
 
-Standing Charge: 30 days @ €0.2850 = €8.55
-Subtotal: €99.59
-VAT (13.5%): €13.44
-Total Amount Due: €113.03
+    const loadingTask = pdfjs.getDocument({ data });
+    const pdf = await loadingTask.promise;
 
-Due Date: 15/02/2024
-  `;
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const text = content.items
+        .map((it: any) => (typeof it?.str === 'string' ? it.str : typeof it === 'string' ? it : ''))
+        .join(' ');
+      fullText += `\n${text}`;
+    }
+
+    return fullText.trim();
+  } catch (e) {
+    // Final fallback: return empty string to let AI fallback handle it
+    return '';
+  }
 }
 
 export async function parseBillPdf(file: File): Promise<BillPdfParseResult> {
@@ -96,7 +116,7 @@ export async function parseBillPdf(file: File): Promise<BillPdfParseResult> {
       }
     }
 
-    // 2) Extract (mock) text then try AI text parsing
+    // 2) Extract real PDF text then try AI text parsing
     const text = await extractBillPdfText(file);
     try {
       const aiText = await parseBillWithAI({ text, filename: file.name });
