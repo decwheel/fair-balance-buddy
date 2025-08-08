@@ -246,7 +246,7 @@ const Index = () => {
               { key: 'setup', label: 'Setup', icon: Calculator },
               { key: 'bank', label: 'Bank Data', icon: TrendingUp },
               { key: 'energy', label: 'Electricity', icon: Lightbulb },
-              { key: 'forecast', label: 'Forecast', icon: Calendar },
+              { key: 'forecast', label: 'Forecast', icon: CalendarIcon },
               { key: 'results', label: 'Results', icon: CheckCircle }
             ].map(({ key, label, icon: Icon }) => (
               <div key={key} className="flex flex-col items-center space-y-2">
