@@ -86,47 +86,89 @@ function parseEsbCsvLine(line: string, lineNumber: number): EsbReading | null {
   // "2024-01-15 00:30:00,1.25"
   // "15/01/2024 00:30,1.25" 
   // "2024-01-15T00:30:00,1.25"
-  
-  const parts = line.split(',');
+  // Also support numeric timestamps (Unix seconds/ms) and Excel serial dates
+
+  // Split by common delimiters
+  let parts = line.split(',');
+  if (parts.length < 2) {
+    parts = line.split(';');
+  }
   if (parts.length < 2) {
     throw new Error('Invalid CSV format - expected date,kwh');
   }
-  
+
   const dateTimeStr = parts[0].trim().replace(/"/g, '');
   const kwhStr = parts[1].trim().replace(/"/g, '');
-  
+
   // Parse kWh value
   const kwh = parseFloat(kwhStr);
   if (isNaN(kwh) || kwh < 0) {
     throw new Error(`Invalid kWh value: ${kwhStr}`);
   }
-  
+
+  // Helpers
+  const excelSerialToDate = (serial: number): Date => {
+    // Excel serial date where 1 = 1899-12-31 (with 1900 leap bug)
+    const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+    const ms = serial * 24 * 60 * 60 * 1000;
+    return new Date(excelEpoch.getTime() + ms);
+  };
+
   // Parse datetime - try multiple formats
   let date: Date;
-  
+  let isNaiveLocal = false; // if true, interpret as Europe/Dublin local time
+
   try {
-    if (dateTimeStr.includes('T')) {
-      // ISO format
+    if (/^\d+$/.test(dateTimeStr)) {
+      // Pure numeric
+      const num = Number(dateTimeStr);
+      if (num > 1e12) {
+        // milliseconds since epoch
+        date = new Date(num);
+      } else if (num > 1e9) {
+        // seconds since epoch
+        date = new Date(num * 1000);
+      } else if (num > 20000) {
+        // Excel serial days
+        date = excelSerialToDate(num);
+        isNaiveLocal = true;
+      } else {
+        throw new Error(`Unrecognized numeric date: ${dateTimeStr}`);
+      }
+    } else if (dateTimeStr.includes('T')) {
+      // ISO format (with optional timezone)
       date = new Date(dateTimeStr);
     } else if (dateTimeStr.includes('/')) {
-      // DD/MM/YYYY HH:mm format
-      date = parse(dateTimeStr, 'dd/MM/yyyy HH:mm', new Date());
+      // DD/MM/YYYY HH:mm or with seconds
+      date = parse(dateTimeStr, 'dd/MM/yyyy HH:mm:ss', new Date());
+      if (isNaN(date.getTime())) {
+        date = parse(dateTimeStr, 'dd/MM/yyyy HH:mm', new Date());
+      }
+      isNaiveLocal = true;
     } else {
-      // YYYY-MM-DD HH:mm:ss format
+      // YYYY-MM-DD HH:mm:ss (or without seconds)
       date = parse(dateTimeStr, 'yyyy-MM-dd HH:mm:ss', new Date());
+      if (isNaN(date.getTime())) {
+        date = parse(dateTimeStr, 'yyyy-MM-dd HH:mm', new Date());
+      }
+      isNaiveLocal = true;
     }
-    
+
     if (isNaN(date.getTime())) {
       throw new Error(`Invalid date format: ${dateTimeStr}`);
     }
   } catch (error) {
     throw new Error(`Could not parse date: ${dateTimeStr}`);
   }
-  
-  // Convert to Dublin timezone ISO string (handles DST)
-  const dublinTime = toZonedTime(date, DUBLIN_TZ);
-  const tsISO = fromZonedTime(dublinTime, DUBLIN_TZ).toISOString();
-  
+
+  // Convert to ISO string. If the parsed value is a naive local time, treat it as Europe/Dublin.
+  let tsISO: string;
+  if (isNaiveLocal) {
+    tsISO = fromZonedTime(date, DUBLIN_TZ).toISOString();
+  } else {
+    tsISO = date.toISOString();
+  }
+
   return {
     tsISO,
     kwh

@@ -22,11 +22,14 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
   } | null>(null);
 
   const handleFile = useCallback(async (file: File) => {
-    if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+    const lower = file.name.toLowerCase();
+    const isPdf = file.type.includes('pdf') || lower.endsWith('.pdf');
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|heic|webp)$/i.test(lower);
+    if (!isPdf && !isImage) {
       setUploadResult({
         success: false,
         tariff: null,
-        errors: ['Please upload a PDF file']
+        errors: ['Please upload a PDF or image (jpg, jpeg, png, heic, webp)']
       });
       return;
     }
@@ -83,7 +86,7 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
           Upload Your Last Electricity Bill
         </CardTitle>
         <CardDescription>
-          Upload your most recent electricity bill PDF to extract tariff rates and billing information.
+          Upload your most recent electricity bill PDF or clear photo to extract tariff rates and billing information.
           This helps us predict future bills more accurately.
         </CardDescription>
       </CardHeader>
@@ -119,7 +122,7 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
             <input
               id="bill-file-input"
               type="file"
-              accept=".pdf"
+              accept=".pdf,.jpg,.jpeg,.png,.heic,.webp"
               className="hidden"
               onChange={handleFileInput}
               disabled={isLoading}

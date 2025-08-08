@@ -18,6 +18,7 @@ import {
   PiggyBank
 } from 'lucide-react';
 import { EsbCsvUpload } from '@/components/energy/EsbCsvUpload';
+import { LastBillUpload } from '@/components/energy/LastBillUpload';
 import { loadMockTransactionsA, loadMockTransactionsB, categorizeBankTransactions, extractPayScheduleFromWages, Transaction } from '@/services/mockBank';
 import { EsbReading } from '@/services/esbCsv';
 import { TariffRates } from '@/services/billPdf';
@@ -108,46 +109,40 @@ const Index = () => {
   };
 
   const handleEnergyReadings = (readings: EsbReading[]) => {
-    // Mock tariff for MVP
-    const mockTariff: TariffRates = {
-      supplier: 'ESB',
-      plan: 'Smart Drive',
-      meterType: 'SMART_TOU',
-      standingChargeDaily: 0.285,
-      vatRate: 0.135,
-      rates: {
-        peak: 0.42,
-        day: 0.21,
-        night: 0.12
-      },
-      confidence: 0.9
-    };
-
-    // Generate predicted electricity bills
-    const predictedBills = generatePredictedBills({
-      readings,
-      tariff: mockTariff,
-      periodsCount: 6,
-      periodLengthDays: 60
-    });
-
-    const electricityBills: Bill[] = predictedBills.map((bill, index) => ({
-      id: `elec_${index}`,
-      name: `Electricity Bill ${index + 1}`,
-      amount: bill.totalInclVat,
-      issueDate: bill.period.start,
-      dueDate: bill.period.end,
-      source: 'predicted-electricity' as const,
-      movable: true
-    }));
-
     setState(prev => ({
       ...prev,
-      electricityReadings: readings,
-      tariffRates: mockTariff,
-      bills: [...prev.bills, ...electricityBills],
-      step: 'forecast'
+      electricityReadings: readings
     }));
+  };
+
+  const handleTariffExtracted = (tariff: TariffRates) => {
+    setState(prev => {
+      const predicted = prev.electricityReadings.length
+        ? generatePredictedBills({
+            readings: prev.electricityReadings,
+            tariff,
+            periodsCount: 6,
+            periodLengthDays: tariff.billingPeriodDays ?? 60
+          })
+        : [];
+
+      const electricityBills: Bill[] = predicted.map((bill, index) => ({
+        id: `elec_${index}`,
+        name: `${tariff.supplier} ${tariff.plan} — Bill ${index + 1}`,
+        amount: bill.totalInclVat,
+        issueDate: bill.period.start,
+        dueDate: bill.period.end,
+        source: 'predicted-electricity' as const,
+        movable: true
+      }));
+
+      return {
+        ...prev,
+        tariffRates: tariff,
+        bills: electricityBills.length ? [...prev.bills, ...electricityBills] : prev.bills,
+        step: electricityBills.length ? 'forecast' : prev.step
+      };
+    });
   };
 
   const runForecast = () => {
@@ -314,8 +309,9 @@ const Index = () => {
         )}
 
         {state.step === 'energy' && (
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto space-y-6">
             <EsbCsvUpload onReadingsLoaded={handleEnergyReadings} isLoading={state.isLoading} />
+            <LastBillUpload onTariffExtracted={handleTariffExtracted} isLoading={state.isLoading} />
           </div>
         )}
 
