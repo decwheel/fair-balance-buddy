@@ -21,3 +21,12 @@ export async function parseBillWithAI(req: AiParseRequest) {
 
   return res.json();
 }
+
+export async function checkAiStatus() {
+  const res = await fetch('/functions/v1/extract-tariff?status=1', { method: 'GET' });
+  if (!res.ok) {
+    const t = await res.text();
+    throw new Error(`AI status failed: ${res.status} ${t}`);
+  }
+  return res.json();
+}

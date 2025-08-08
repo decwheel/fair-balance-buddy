@@ -27,10 +27,16 @@ interface BillPdfParseResult {
 }
 
 Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  // Lightweight GET health check: /functions/v1/extract-tariff?status=1
+  if (req.method === 'GET' && url.searchParams.get('status') !== null) {
+    const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
+    return Response.json({ ok: true, function: 'extract-tariff', hasOpenAIKey: Boolean(OPENAI_API_KEY) });
+  }
+
   if (req.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
-
   const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
 
   let body: any = {};
@@ -115,6 +121,11 @@ Deno.serve(async (req) => {
         for (const k of Object.keys(tariff.rates)) {
           tariff.rates[k] = Number(tariff.rates[k]);
         }
+      }
+      // If billingPeriod.days was extracted, surface it on tariff for clients
+      const bp = (parsed as any).billingPeriod;
+      if (bp && typeof bp.days === 'number' && !tariff.billingPeriodDays) {
+        tariff.billingPeriodDays = Number(bp.days);
       }
     }
 

@@ -5,7 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Upload, FileText, AlertCircle, CheckCircle } from 'lucide-react';
 import { parseBillPdf, TariffRates } from '@/services/billPdf';
-import { parseBillWithAI } from '@/services/billAi';
+import { parseBillWithAI, checkAiStatus as getAiStatus } from '@/services/billAi';
 import { formatCurrency } from '@/utils/dateUtils';
 
 interface LastBillUploadProps {
@@ -26,7 +26,7 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
   const checkAiStatus = useCallback(async () => {
     try {
       setAiStatus({ state: 'checking' });
-      const result: any = await parseBillWithAI({ text: 'STATUS_CHECK' });
+      const result: any = await getAiStatus();
       const hasKey = !!(result && result.hasOpenAIKey);
       setAiStatus({ state: 'ok', message: hasKey ? 'Edge Function ✓ • OpenAI key detected' : 'Edge Function ✓ • Missing OPENAI_API_KEY' });
     } catch (err) {

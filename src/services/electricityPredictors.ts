@@ -6,14 +6,14 @@ import { deriveMonthlyWeightsFromReadings, firstOfNextMonth, lastOfMonth } from 
 
 export type ElectricityMode = 'csv' | 'bills6' | 'billsSome';
 
-// FairSplit-style predictor: calendar-month cycles + seasonal weights
+// FairSplit-style predictor: infer billing cycle length and due dates
 export function predictBills(params: {
   mode: ElectricityMode;
   readings: EsbReading[];
   tariff: TariffRates;
-  months?: number;
+  months?: number; // horizon window (approx)
 }): BillEstimate[] {
-  const { readings, tariff, months = 12 } = params;
+  const { readings, tariff, months = 12, mode } = params;
   if (!readings?.length) return [];
 
   // Sort & window last 365 days
@@ -39,51 +39,106 @@ export function predictBills(params: {
   // Band distribution from recent 30 days; fallback heuristics per meter type
   const bandPercentages = getBandPercentages(sorted, tariff);
 
-  // Generate calendar-month periods starting next month
-  const startMonth = firstOfNextMonth(new Date(lastTs));
-  const bills: BillEstimate[] = [];
+  // Infer billing cycle
+  const explicitDays = Number(tariff.billingPeriodDays || 0) || undefined;
+  const cycleDays = explicitDays ?? (mode === 'bills6' ? 61 : mode === 'billsSome' ? 61 : undefined);
+  const hasCycle = Boolean(cycleDays);
+  const anchorDue = tariff.nextDueDate ? new Date(tariff.nextDueDate) : null;
 
-  for (let i = 0; i < months; i++) {
-    const periodStart = new Date(startMonth.getFullYear(), startMonth.getMonth() + i, 1);
-    const periodEnd = lastOfMonth(periodStart);
-    const days = periodEnd.getDate(); // since periodStart is day 1
-
-    const monthIdx = periodStart.getMonth(); // 0..11 (Jan..Dec)
-    const periodKwh = annualKwh * (monthWeights[monthIdx] ?? 0);
-
-    // Distribute across bands and price
-    const bandBreakdown: BillEstimate['bandBreakdown'] = {};
-    let usageChargeTotal = 0;
-    for (const [band, pct] of Object.entries(bandPercentages)) {
-      const kwh = periodKwh * pct;
-      const rate = tariff.rates[band] || tariff.rates.standard || 0.25;
-      const cost = kwh * rate;
-      bandBreakdown[band] = { kwh, rate, cost };
-      usageChargeTotal += cost;
+  // If we can't infer a cycle length, fallback to calendar-month prediction
+  if (!hasCycle) {
+    const startMonth = firstOfNextMonth(new Date(lastTs));
+    const bills: BillEstimate[] = [];
+    for (let i = 0; i < months; i++) {
+      const periodStart = new Date(startMonth.getFullYear(), startMonth.getMonth() + i, 1);
+      const periodEnd = lastOfMonth(periodStart);
+      const periodKwh = estimateKwhForPeriod(periodStart, periodEnd, annualKwh, monthWeights);
+      bills.push(buildBill(periodStart, periodEnd, periodKwh, bandPercentages, tariff));
     }
+    return bills;
+  }
 
-    const standingChargeTotal = days * tariff.standingChargeDaily;
-    const totalExclVat = usageChargeTotal + standingChargeTotal;
-    const vatAmount = totalExclVat * tariff.vatRate;
-    const totalInclVat = totalExclVat + vatAmount;
+  // Cycle-based prediction (FairSplit-style)
+  const horizonDays = Math.round(months * 30.4);
+  const N = Math.max(1, Math.ceil(horizonDays / (cycleDays as number)));
 
-    bills.push({
-      totalInclVat: round2(totalInclVat),
-      totalExclVat: round2(totalExclVat),
-      vatAmount: round2(vatAmount),
-      standingChargeTotal: round2(standingChargeTotal),
-      usageChargeTotal: round2(usageChargeTotal),
-      bandBreakdown,
-      period: {
-        start: periodStart.toISOString().split('T')[0],
-        end: periodEnd.toISOString().split('T')[0],
-        days
-      },
-      totalKwh: round2(periodKwh)
-    });
+  // Determine first period end (due date) and start
+  let firstEnd: Date;
+  if (anchorDue) {
+    firstEnd = anchorDue;
+  } else {
+    // Anchor at the end of next month to approximate real-world cycles
+    firstEnd = lastOfMonth(firstOfNextMonth(new Date(lastTs)));
+  }
+  const bills: BillEstimate[] = [];
+  for (let i = 0; i < N; i++) {
+    const end = new Date(firstEnd);
+    end.setDate(end.getDate() + i * (cycleDays as number));
+    const start = new Date(end);
+    start.setDate(end.getDate() - (cycleDays as number) + 1);
+
+    const periodKwh = estimateKwhForPeriod(start, end, annualKwh, monthWeights);
+    bills.push(buildBill(start, end, periodKwh, bandPercentages, tariff));
   }
 
   return bills;
+}
+
+// Estimate kWh for an arbitrary date range using monthly seasonal weights
+function estimateKwhForPeriod(start: Date, end: Date, annualKwh: number, monthWeights: number[]): number {
+  // Ensure start <= end
+  const s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  if (e < s) return 0;
+
+  let share = 0;
+  let cursor = new Date(s);
+  while (cursor <= e) {
+    const m = cursor.getMonth();
+    const ms = new Date(cursor.getFullYear(), m, 1);
+    const me = lastOfMonth(ms);
+    const rangeStart = cursor > ms ? cursor : ms;
+    const rangeEnd = e < me ? e : me;
+    const daysInMonth = me.getDate();
+    const overlapDays = Math.max(0, (rangeEnd.getTime() - rangeStart.getTime()) / 86400000 + 1);
+    share += (monthWeights[m] ?? 0) * (overlapDays / daysInMonth);
+    // Move cursor to first day of next month
+    cursor = new Date(me.getFullYear(), me.getMonth() + 1, 1);
+  }
+  return annualKwh * share;
+}
+
+function buildBill(periodStart: Date, periodEnd: Date, periodKwh: number, bandPercentages: Record<string, number>, tariff: TariffRates): BillEstimate {
+  const days = Math.max(1, Math.floor((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1);
+  // Distribute across bands and price
+  const bandBreakdown: BillEstimate['bandBreakdown'] = {};
+  let usageChargeTotal = 0;
+  for (const [band, pct] of Object.entries(bandPercentages)) {
+    const kwh = periodKwh * pct;
+    const rate = tariff.rates[band] || tariff.rates.standard || 0.25;
+    const cost = kwh * rate;
+    bandBreakdown[band] = { kwh, rate, cost };
+    usageChargeTotal += cost;
+  }
+  const standingChargeTotal = days * tariff.standingChargeDaily;
+  const totalExclVat = usageChargeTotal + standingChargeTotal;
+  const vatAmount = totalExclVat * tariff.vatRate;
+  const totalInclVat = totalExclVat + vatAmount;
+
+  return {
+    totalInclVat: round2(totalInclVat),
+    totalExclVat: round2(totalExclVat),
+    vatAmount: round2(vatAmount),
+    standingChargeTotal: round2(standingChargeTotal),
+    usageChargeTotal: round2(usageChargeTotal),
+    bandBreakdown,
+    period: {
+      start: periodStart.toISOString().split('T')[0],
+      end: periodEnd.toISOString().split('T')[0],
+      days,
+    },
+    totalKwh: round2(periodKwh),
+  };
 }
 
 function getBandPercentages(sorted: EsbReading[], tariff: TariffRates): Record<string, number> {
