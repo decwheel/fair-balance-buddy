@@ -5,6 +5,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Upload, FileText, AlertCircle, CheckCircle } from 'lucide-react';
 import { parseBillPdf, TariffRates } from '@/services/billPdf';
+import { parseBillWithAI } from '@/services/billAi';
 import { formatCurrency } from '@/utils/dateUtils';
 
 interface LastBillUploadProps {
@@ -20,7 +21,18 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
     tariff: TariffRates | null;
     errors: string[];
   } | null>(null);
+  const [aiStatus, setAiStatus] = useState<{ state: 'idle' | 'checking' | 'ok' | 'error'; message?: string }>({ state: 'idle' });
 
+  const checkAiStatus = useCallback(async () => {
+    try {
+      setAiStatus({ state: 'checking' });
+      await parseBillWithAI({ text: 'STATUS_CHECK' });
+      setAiStatus({ state: 'ok', message: 'Edge Function reachable ✓' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      setAiStatus({ state: 'error', message });
+    }
+  }, []);
   const handleFile = useCallback(async (file: File) => {
     const lower = file.name.toLowerCase();
     const isPdf = file.type.includes('pdf') || lower.endsWith('.pdf');
@@ -81,9 +93,21 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <FileText className="w-5 h-5 text-warning" />
-          Upload Your Last Electricity Bill
+        <CardTitle className="flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-warning" />
+            Upload Your Last Electricity Bill
+          </span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={checkAiStatus} disabled={aiStatus.state === 'checking'}>
+              {aiStatus.state === 'checking' ? 'Checking…' : 'Check AI status'}
+            </Button>
+            {aiStatus.state !== 'idle' && (
+              <span className={`text-xs ${aiStatus.state === 'ok' ? 'text-green-600' : aiStatus.state === 'error' ? 'text-red-600' : 'text-muted-foreground'}`}>
+                {aiStatus.message || (aiStatus.state === 'ok' ? 'OK' : '')}
+              </span>
+            )}
+          </div>
         </CardTitle>
         <CardDescription>
           Upload your most recent electricity bill PDF or clear photo to extract tariff rates and billing information.
