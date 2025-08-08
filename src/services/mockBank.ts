@@ -9,13 +9,69 @@ export interface Transaction {
 }
 
 export async function loadMockTransactionsA(): Promise<Transaction[]> {
-  const { default: data } = await import('@/data/mockBoiA.json');
-  return data as Transaction[];
+  const { default: raw } = await import('@/data/mockBoiA.json');
+  return normalizeTransactions(raw);
 }
 
 export async function loadMockTransactionsB(): Promise<Transaction[]> {
-  const { default: data } = await import('@/data/mockBoiB.json');
-  return data as Transaction[];
+  const { default: raw } = await import('@/data/mockBoiB.json');
+  return normalizeTransactions(raw);
+}
+
+function normalizeTransactions(raw: any): Transaction[] {
+  const items: any[] = Array.isArray(raw) ? raw : raw?.transactions ?? [];
+  return items.map((it: any, idx: number) => {
+    // FairSplit fixtures shape
+    if (it && (it.transactionId || it.internalTransactionId)) {
+      const amountStr = it.transactionAmount?.amount ?? it.amount ?? '0';
+      const amount = typeof amountStr === 'number' ? amountStr : parseFloat(String(amountStr));
+      const description: string = it.remittanceInformationUnstructured ?? it.description ?? '';
+      const date: string = it.bookingDate ?? it.date ?? new Date().toISOString().slice(0, 10);
+      const id: string = String(it.transactionId || it.internalTransactionId || `tx_${idx}`);
+      const category = detectCategory(description, amount);
+      return {
+        id,
+        date,
+        description,
+        amount,
+        balance: 0,
+        category,
+        type: amount >= 0 ? 'credit' : 'debit',
+      } as Transaction;
+    }
+
+    // Already in our internal shape
+    const amount = typeof it.amount === 'string' ? parseFloat(it.amount) : it.amount;
+    const desc = it.description ?? '';
+    const category = detectCategory(desc, amount);
+    return {
+      id: String(it.id ?? `tx_${idx}`),
+      date: it.date,
+      description: desc,
+      amount,
+      balance: typeof it.balance === 'number' ? it.balance : 0,
+      category: it.category ?? category,
+      type: amount >= 0 ? 'credit' : 'debit',
+    } as Transaction;
+  });
+}
+
+function detectCategory(description: string, amount: number): 'wages' | 'bills' | 'misc' {
+  const desc = (description || '').toUpperCase();
+  const isCredit = amount >= 0;
+
+  const wageKeywords = [
+    'SALARY', 'PAYROLL', 'PAYMENT', 'WAGES', 'WAGE', 'PAYE', 'HR', 'ACME', 'BONUS'
+  ];
+  const billKeywords = [
+    'ESB', 'ELECTRIC', 'BORD GAIS', 'GAS', 'IRISH WATER', 'WATER', 'EIR', 'VODAFONE', 'THREE',
+    'NETFLIX', 'SPOTIFY', 'INSURANCE', 'MORTGAGE', 'RENT', 'LOAN', 'DD', 'DIRECT DEBIT',
+    'EFLOW', 'TOLL', 'CRECHE', 'SSE', 'ENERGY', 'WASTE', 'BIN'
+  ];
+
+  if (isCredit && wageKeywords.some(k => desc.includes(k))) return 'wages';
+  if (!isCredit && billKeywords.some(k => desc.includes(k))) return 'bills';
+  return 'misc';
 }
 
 export function categorizeBankTransactions(transactions: Transaction[]): {
@@ -41,7 +97,7 @@ export function extractPayScheduleFromWages(wages: Transaction[]): {
   const sortedWages = [...wages].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   
   // Calculate average interval between pay dates
-  const intervals = [];
+  const intervals: number[] = [];
   for (let i = 1; i < sortedWages.length; i++) {
     const prev = new Date(sortedWages[i - 1].date);
     const curr = new Date(sortedWages[i].date);
