@@ -23,7 +23,7 @@ import { loadMockTransactionsA, loadMockTransactionsB, categorizeBankTransaction
 import { EsbReading } from '@/services/esbCsv';
 import { TariffRates } from '@/services/billPdf';
 import { Bill, PaySchedule, findDepositSingle, findDepositJoint, runSingle, runJoint } from '@/services/forecastAdapters';
-import { formatCurrency } from '@/utils/dateUtils';
+import { formatCurrency, calculatePayDates } from '@/utils/dateUtils';
 import { generatePredictedBills } from '@/services/tariffEngine';
 
 interface AppState {
@@ -100,7 +100,7 @@ const Index = () => {
         userB,
         bills,
         isLoading: false,
-        step: 'energy'
+        step: 'bank'
       }));
     } catch (error) {
       console.error('Failed to load bank data:', error);
@@ -304,6 +304,69 @@ const Index = () => {
                   </p>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {state.step === 'bank' && (
+          <Card className="max-w-3xl mx-auto">
+            <CardHeader>
+              <CardTitle>Review Bank Data</CardTitle>
+              <CardDescription>Confirm detected pay schedules and bills, then continue.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-1">
+                  <p className="text-sm text-muted-foreground">Person A</p>
+                  <p className="text-lg font-semibold">
+                    {state.userA.paySchedule
+                      ? `${state.userA.paySchedule.frequency} · Anchor ${state.userA.paySchedule.anchorDate}`
+                      : 'Pay schedule not detected'}
+                  </p>
+                  {state.userA.paySchedule && (
+                    <p className="text-sm text-muted-foreground">
+                      Next pay date: {(() => {
+                        const dates = calculatePayDates(state.userA.paySchedule!.frequency, state.userA.paySchedule!.anchorDate, 3);
+                        const today = new Date().toISOString().split('T')[0];
+                        const next = dates.find(d => d >= today) ?? dates[dates.length - 1];
+                        return next;
+                      })()}
+                    </p>
+                  )}
+                  <Badge variant="secondary">{state.userA.transactions.length} transactions</Badge>
+                </div>
+                
+                {state.mode === 'joint' && state.userB && (
+                  <div className="space-y-1">
+                    <p className="text-sm text-muted-foreground">Person B</p>
+                    <p className="text-lg font-semibold">
+                      {state.userB.paySchedule
+                        ? `${state.userB.paySchedule.frequency} · Anchor ${state.userB.paySchedule.anchorDate}`
+                        : 'Pay schedule not detected'}
+                    </p>
+                    {state.userB.paySchedule && (
+                      <p className="text-sm text-muted-foreground">
+                        Next pay date: {(() => {
+                          const dates = calculatePayDates(state.userB!.paySchedule!.frequency, state.userB!.paySchedule!.anchorDate, 3);
+                          const today = new Date().toISOString().split('T')[0];
+                          const next = dates.find(d => d >= today) ?? dates[dates.length - 1];
+                          return next;
+                        })()}
+                      </p>
+                    )}
+                    <Badge variant="secondary">{state.userB.transactions.length} transactions</Badge>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Imported Bank Bills</p>
+                <Badge variant="secondary">{state.bills.filter(b => b.source === 'imported').length} bills</Badge>
+              </div>
+
+              <Button className="w-full" onClick={() => setState(prev => ({ ...prev, step: 'energy' }))}>
+                Continue to Electricity
+              </Button>
             </CardContent>
           </Card>
         )}
