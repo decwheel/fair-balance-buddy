@@ -24,7 +24,7 @@ import { EsbReading } from '@/services/esbCsv';
 import { TariffRates } from '@/services/billPdf';
 import { Bill, PaySchedule, findDepositSingle, findDepositJoint, runSingle, runJoint } from '@/services/forecastAdapters';
 import { formatCurrency, calculatePayDates } from '@/utils/dateUtils';
-import { generatePredictedBills } from '@/services/tariffEngine';
+import { predictBills, ElectricityMode } from '@/services/electricityPredictors';
 import { Calendar as DayPicker } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
@@ -54,6 +54,7 @@ interface AppState {
   isLoading: boolean;
   step: 'setup' | 'bank' | 'energy' | 'forecast' | 'results';
   selectedDate: string | null; // for calendar selection
+  electricityMode: ElectricityMode;
 }
 
 const Index = () => {
@@ -67,7 +68,8 @@ const [state, setState] = useState<AppState>({
   forecastResult: null,
   isLoading: false,
   step: 'setup',
-  selectedDate: null
+  selectedDate: null,
+  electricityMode: 'csv'
 });
 
   // Load mock bank data
@@ -87,13 +89,31 @@ const [state, setState] = useState<AppState>({
         userB = { transactions: transactionsB, paySchedule: payScheduleB };
       }
 
-      // Convert bill transactions to Bill objects
-      const billTxs = mode === 'joint' 
-        ? [...categorizedA.bills, ...(userB ? categorizeBankTransactions(userB.transactions).bills : [])]
-        : categorizedA.bills;
+      // Convert bill transactions to Bill objects (top recurring per person)
+      function topRecurring(trans: Transaction[], take: number): Transaction[] {
+        const bills = categorizeBankTransactions(trans).bills;
+        const groups = new Map<string, { count: number; tx: Transaction }>();
+        bills.forEach(tx => {
+          const key = (tx.description || '').toUpperCase().replace(/\s+/g, ' ').trim();
+          const g = groups.get(key);
+          if (!g) groups.set(key, { count: 1, tx }); else g.count++;
+          // keep the latest transaction as representative
+          if (g && new Date(tx.date) > new Date(g.tx.date)) groups.set(key, { count: (g?.count||1), tx });
+        });
+        return Array.from(groups.values())
+          .sort((a,b) => b.count - a.count)
+          .slice(0, take)
+          .map(g => g.tx);
+      }
 
-      const bills: Bill[] = billTxs.map(tx => ({
-        id: tx.id,
+      const aTop = topRecurring(transactionsA, mode === 'joint' ? 6 : 6);
+      const bTop = mode === 'joint' && userB ? topRecurring(userB.transactions, 11) : [];
+      const billTxs = mode === 'joint' 
+        ? [...aTop, ...bTop]
+        : aTop;
+
+      const bills: Bill[] = billTxs.map((tx, idx) => ({
+        id: tx.id || `${mode}-${idx}`,
         name: tx.description,
         amount: Math.abs(tx.amount),
         issueDate: tx.date,
@@ -128,11 +148,11 @@ setState(prev => ({
   const handleTariffExtracted = (tariff: TariffRates) => {
     setState(prev => {
       const predicted = prev.electricityReadings.length
-        ? generatePredictedBills({
+        ? predictBills({
+            mode: prev.electricityMode,
             readings: prev.electricityReadings,
             tariff,
-            periodsCount: 12,
-            periodLengthDays: tariff.billingPeriodDays ?? 60
+            months: 12
           })
         : [];
 
@@ -150,8 +170,8 @@ setState(prev => ({
         ...prev,
         tariffRates: tariff,
         bills: electricityBills.length ? [...prev.bills, ...electricityBills] : prev.bills,
-        includedBillIds: electricityBills.length ? Array.from(new Set([...
-          prev.includedBillIds,
+        includedBillIds: electricityBills.length ? Array.from(new Set([
+          ...prev.includedBillIds,
           ...electricityBills.map(b => b.id!)
         ])) : prev.includedBillIds,
         step: electricityBills.length ? 'forecast' : prev.step
@@ -479,6 +499,26 @@ setState(prev => ({
 
         {state.step === 'energy' && (
           <div className="max-w-4xl mx-auto space-y-6">
+            <div className="rounded-md border p-4">
+              <p className="text-sm font-medium mb-2">Electricity prediction method</p>
+              <div className="flex flex-wrap gap-4 text-sm">
+                {([
+                  { key: 'csv', label: 'Smart‑meter CSV + last bill' },
+                  { key: 'bills6', label: '6 consecutive bills' },
+                  { key: 'billsSome', label: 'Some recent bills' },
+                ] as Array<{key: ElectricityMode; label: string}>).map(({ key, label }) => (
+                  <label key={key} className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="elecMode"
+                      checked={state.electricityMode === key}
+                      onChange={() => setState(prev => ({ ...prev, electricityMode: key }))}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
             <EsbCsvUpload onReadingsLoaded={handleEnergyReadings} isLoading={state.isLoading} />
             <LastBillUpload onTariffExtracted={handleTariffExtracted} isLoading={state.isLoading} />
           </div>
@@ -497,7 +537,7 @@ setState(prev => ({
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Bank Bills</p>
                   <Badge variant="secondary">
-                    {state.bills.filter(b => b.source === 'imported').length} bills found
+                    {state.bills.filter(b => b.source === 'imported').length} selected
                   </Badge>
                 </div>
                 <div className="space-y-2">
