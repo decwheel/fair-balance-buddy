@@ -13,7 +13,7 @@ import {
   CheckCircle, 
   AlertCircle,
   Euro,
-  Calendar,
+  Calendar as CalendarIcon,
   Zap,
   PiggyBank
 } from 'lucide-react';
@@ -25,6 +25,9 @@ import { TariffRates } from '@/services/billPdf';
 import { Bill, PaySchedule, findDepositSingle, findDepositJoint, runSingle, runJoint } from '@/services/forecastAdapters';
 import { formatCurrency, calculatePayDates } from '@/utils/dateUtils';
 import { generatePredictedBills } from '@/services/tariffEngine';
+import { Calendar as DayPicker } from '@/components/ui/calendar';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 
 interface AppState {
   mode: 'single' | 'joint';
@@ -121,7 +124,7 @@ const Index = () => {
         ? generatePredictedBills({
             readings: prev.electricityReadings,
             tariff,
-            periodsCount: 6,
+            periodsCount: 12,
             periodLengthDays: tariff.billingPeriodDays ?? 60
           })
         : [];
@@ -309,14 +312,14 @@ const Index = () => {
         )}
 
         {state.step === 'bank' && (
-          <Card className="max-w-3xl mx-auto">
+          <Card className="max-w-4xl mx-auto">
             <CardHeader>
               <CardTitle>Review Bank Data</CardTitle>
-              <CardDescription>Confirm detected pay schedules and bills, then continue.</CardDescription>
+              <CardDescription>Confirm detected pay schedules, wages, and bills for each person.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent className="space-y-8">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-1">
+                <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Person A</p>
                   <p className="text-lg font-semibold">
                     {state.userA.paySchedule
@@ -335,9 +338,8 @@ const Index = () => {
                   )}
                   <Badge variant="secondary">{state.userA.transactions.length} transactions</Badge>
                 </div>
-                
                 {state.mode === 'joint' && state.userB && (
-                  <div className="space-y-1">
+                  <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Person B</p>
                     <p className="text-lg font-semibold">
                       {state.userB.paySchedule
@@ -359,10 +361,109 @@ const Index = () => {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Imported Bank Bills</p>
-                <Badge variant="secondary">{state.bills.filter(b => b.source === 'imported').length} bills</Badge>
-              </div>
+              {/* Wages & Bills Tables */}
+              {(() => {
+                const a = categorizeBankTransactions(state.userA.transactions);
+                const b = state.mode === 'joint' && state.userB ? categorizeBankTransactions(state.userB.transactions) : null;
+                const preview = (items: Transaction[]) => items.slice(0, 6);
+                return (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium">Person A · Wages</p>
+                      <div className="rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead className="text-right">Amount</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {preview(a.wages).map((tx) => (
+                              <TableRow key={tx.id}>
+                                <TableCell>{tx.date}</TableCell>
+                                <TableCell className="truncate max-w-[200px]">{tx.description}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(tx.amount)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+
+                      <p className="text-sm font-medium">Person A · Bills</p>
+                      <div className="rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Date</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead className="text-right">Amount</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {preview(a.bills).map((tx) => (
+                              <TableRow key={tx.id}>
+                                <TableCell>{tx.date}</TableCell>
+                                <TableCell className="truncate max-w-[200px]">{tx.description}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(Math.abs(tx.amount))}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+
+                    {state.mode === 'joint' && b && (
+                      <div className="space-y-3">
+                        <p className="text-sm font-medium">Person B · Wages</p>
+                        <div className="rounded-md border">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Date</TableHead>
+                                <TableHead>Description</TableHead>
+                                <TableHead className="text-right">Amount</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {preview(b.wages).map((tx) => (
+                                <TableRow key={tx.id}>
+                                  <TableCell>{tx.date}</TableCell>
+                                  <TableCell className="truncate max-w-[200px]">{tx.description}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(tx.amount)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+
+                        <p className="text-sm font-medium">Person B · Bills</p>
+                        <div className="rounded-md border">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Date</TableHead>
+                                <TableHead>Description</TableHead>
+                                <TableHead className="text-right">Amount</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {preview(b.bills).map((tx) => (
+                                <TableRow key={tx.id}>
+                                  <TableCell>{tx.date}</TableCell>
+                                  <TableCell className="truncate max-w-[200px]">{tx.description}</TableCell>
+                                  <TableCell className="text-right">{formatCurrency(Math.abs(tx.amount))}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               <Button className="w-full" onClick={() => setState(prev => ({ ...prev, step: 'energy' }))}>
                 Continue to Electricity
@@ -379,14 +480,14 @@ const Index = () => {
         )}
 
         {state.step === 'forecast' && (
-          <Card className="max-w-2xl mx-auto">
+          <Card className="max-w-4xl mx-auto">
             <CardHeader>
               <CardTitle>Ready to Forecast</CardTitle>
               <CardDescription>
-                We've loaded your bank data and electricity usage. Ready to calculate optimal deposits?
+                We've loaded your bank data and electricity usage. Review predicted electricity bills, then calculate optimal deposits.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Bank Bills</p>
@@ -395,13 +496,59 @@ const Index = () => {
                   </Badge>
                 </div>
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">Predicted Bills</p>
+                  <p className="text-sm font-medium">Predicted Electricity Bills</p>
                   <Badge variant="secondary">
-                    {state.bills.filter(b => b.source === 'predicted-electricity').length} electricity bills
+                    {state.bills.filter(b => b.source === 'predicted-electricity').length} over next year
                   </Badge>
                 </div>
               </div>
-              
+
+              {/* Electricity Forecast Details */}
+              {(() => {
+                const elec = state.bills.filter(b => b.source === 'predicted-electricity').slice(0, 12);
+                if (!elec.length) return null;
+                const chartData = elec.map((b) => ({ date: b.dueDate.slice(5), amount: b.amount }));
+                return (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="rounded-md border p-4">
+                      <p className="text-sm font-medium mb-3">Next 12 Months — Bill Dates & Amounts</p>
+                      <div className="max-h-64 overflow-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Due Date</TableHead>
+                              <TableHead>Bill</TableHead>
+                              <TableHead className="text-right">Amount</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {elec.map((b) => (
+                              <TableRow key={b.id}>
+                                <TableCell>{b.dueDate}</TableCell>
+                                <TableCell className="truncate max-w-[220px]">{b.name}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(b.amount)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                    <div className="rounded-md border p-4">
+                      <p className="text-sm font-medium mb-3">Bills per Period (Bar Chart)</p>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={chartData}>
+                            <XAxis dataKey="date" tickLine={false} axisLine={false} />
+                            <YAxis tickLine={false} axisLine={false} />
+                            <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4,4,0,0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               <Button 
                 onClick={runForecast} 
                 disabled={state.isLoading}
@@ -457,6 +604,64 @@ const Index = () => {
                 </Alert>
               </CardContent>
             </Card>
+
+            {/* Calendar of Forecasted Transactions */}
+            {(() => {
+              const eventsByDate = new Map<string, string[]>();
+              state.forecastResult!.timeline.forEach((t) => {
+                const key = t.date;
+                if (!eventsByDate.has(key)) eventsByDate.set(key, []);
+                if (t.event) eventsByDate.get(key)!.push(t.event);
+              });
+
+              const [sel, setSel] = [null, null] as unknown as [string | null, (v: string | null) => void];
+              // Lightweight selection using a closure variable instead of React state to minimize edits.
+              let selectedDate: string | null = null;
+
+              const handleSelect = (d?: Date) => {
+                selectedDate = d ? new Date(d).toISOString().slice(0,10) : null;
+                // Force a re-render by toggling step quickly
+                setState(prev => ({ ...prev }));
+              };
+
+              const selectedEvents = selectedDate ? (eventsByDate.get(selectedDate) || []) : [];
+
+              return (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CalendarIcon className="w-5 h-5" />
+                      Forecast Calendar
+                    </CardTitle>
+                    <CardDescription>Select a date to see transactions due that day.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div className="rounded-md border p-4">
+                      <DayPicker
+                        mode="single"
+                        onSelect={handleSelect as any}
+                      />
+                    </div>
+                    <div className="rounded-md border p-4">
+                      <p className="text-sm font-medium mb-3">Transactions on Selected Date</p>
+                      {selectedDate ? (
+                        selectedEvents.length ? (
+                          <ul className="list-disc pl-5 space-y-2">
+                            {selectedEvents.map((e, i) => (
+                              <li key={i}>{e}</li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No transactions on {selectedDate}.</p>
+                        )
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Pick a date to view transactions.</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })()}
 
             <Button 
               variant="outline" 
