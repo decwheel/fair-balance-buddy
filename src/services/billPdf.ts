@@ -1,3 +1,5 @@
+import { parseBillWithAI } from './billAi';
+
 export interface DiscountRules {
   unitRatePercent?: number;         // e.g., 0.10 for 10% off unit rates
   standingChargePercent?: number;   // e.g., 0.10 for 10% off standing charge
@@ -71,7 +73,39 @@ Due Date: 15/02/2024
 
 export async function parseBillPdf(file: File): Promise<BillPdfParseResult> {
   try {
+    const lower = file.name.toLowerCase();
+    const isPdf = file.type.includes('pdf') || lower.endsWith('.pdf');
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|heic|webp)$/i.test(lower);
+
+    // Helper to convert image to data URL
+    const toDataUrl = (f: File) => new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(f);
+    });
+
+    // 1) If image: try AI vision first
+    if (isImage) {
+      try {
+        const dataUrl = await toDataUrl(file);
+        const aiVision = await parseBillWithAI({ imageBase64: dataUrl, filename: file.name });
+        if (aiVision && aiVision.tariff) return aiVision;
+      } catch (_) {
+        // continue to text path
+      }
+    }
+
+    // 2) Extract (mock) text then try AI text parsing
     const text = await extractBillPdfText(file);
+    try {
+      const aiText = await parseBillWithAI({ text, filename: file.name });
+      if (aiText && aiText.tariff) return aiText;
+    } catch (_) {
+      // fall back to local regex parser
+    }
+
+    // 3) Fallback: local regex parser
     return parseBillText(text);
   } catch (error) {
     return {
