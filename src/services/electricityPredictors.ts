@@ -15,10 +15,7 @@ export function predictBills(params: {
   const { mode, readings, tariff, months = 12 } = params;
 
   // Pick a period length heuristic per mode (FS infers cycle; we approximate)
-  const periodLengthDays =
-    mode === 'csv' ? (tariff.billingPeriodDays ?? 60)
-    : mode === 'bills6' ? 61 // typical bi-monthly
-    : 60; // default
+  const periodLengthDays = tariff.billingPeriodDays ?? (mode === 'bills6' ? 61 : 60);
 
   const periodsCount = months;
   return generatePredictedBills({ readings, tariff, periodsCount, periodLengthDays });

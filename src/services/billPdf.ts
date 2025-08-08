@@ -15,6 +15,7 @@ export interface TariffRates {
     [bandName: string]: number; // € per kWh
   };
   billingPeriodDays?: number;
+  nextDueDate?: string;        // ISO yyyy-mm-dd if detected from bill
   confidence: number; // 0-1 confidence in extraction
   discounts?: DiscountRules;    // optional bill discounts inferred from last bill
   fitRate?: number;             // optional Feed-in Tariff €/kWh
@@ -188,6 +189,15 @@ export function parseBillText(text: string): BillPdfParseResult {
     billTotal = parseFloat(totalMatch[1]);
   }
 
+  // Extract due date (if present)
+  let nextDueDateIso: string | undefined;
+  const dueMatch = text.match(/due\s*date:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
+  if (dueMatch) {
+    const [d, m, y] = dueMatch[1].split('/').map((n) => parseInt(n, 10));
+    const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    nextDueDateIso = iso;
+  }
+
   const finalConfidence = confidence / 100;
 
   if (finalConfidence < 0.6) {
@@ -206,6 +216,7 @@ export function parseBillText(text: string): BillPdfParseResult {
     vatRate,
     rates,
     billingPeriodDays: billingPeriod?.days,
+    nextDueDate: nextDueDateIso,
     confidence: finalConfidence
   };
 

@@ -41,6 +41,8 @@ interface AppState {
     transactions: Transaction[];
     paySchedule: PaySchedule | null;
   };
+  wageConfirmedA: boolean;
+  wageConfirmedB?: boolean;
   bills: Bill[];
   includedBillIds: string[]; // which bills are included in the forecast
   electricityReadings: EsbReading[];
@@ -62,6 +64,7 @@ const [state, setState] = useState<AppState>({
   mode: 'single',
   userA: { transactions: [], paySchedule: null },
   bills: [],
+  wageConfirmedA: false,
   includedBillIds: [],
   electricityReadings: [],
   tariffRates: null,
@@ -156,15 +159,28 @@ setState(prev => ({
           })
         : [];
 
-      const electricityBills: Bill[] = predicted.map((bill, index) => ({
-        id: `elec_${index}`,
-        name: `${tariff.supplier} ${tariff.plan} — Bill ${index + 1}`,
-        amount: bill.totalInclVat,
-        issueDate: bill.period.start,
-        dueDate: bill.period.end,
-        source: 'predicted-electricity' as const,
-        movable: true
-      }));
+      const periodDays = tariff.billingPeriodDays ?? (prev.electricityMode === 'bills6' ? 61 : 60);
+
+      const addDays = (iso: string, days: number) => {
+        const d = new Date(iso);
+        d.setDate(d.getDate() + days);
+        return d.toISOString().split('T')[0];
+      };
+
+      const anchorDue = tariff.nextDueDate;
+
+      const electricityBills: Bill[] = predicted.map((bill, index) => {
+        const dueDate = anchorDue ? addDays(anchorDue, index * periodDays) : bill.period.end;
+        return ({
+          id: `elec_${index}`,
+          name: `${tariff.supplier} ${tariff.plan} — Bill ${index + 1}`,
+          amount: bill.totalInclVat,
+          issueDate: bill.period.start,
+          dueDate,
+          source: 'predicted-electricity' as const,
+          movable: true
+        });
+      });
 
       return {
         ...prev,
@@ -352,11 +368,6 @@ setState(prev => ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Person A</p>
-                  <p className="text-lg font-semibold">
-                    {state.userA.paySchedule
-                      ? `${state.userA.paySchedule.frequency} · Anchor ${state.userA.paySchedule.anchorDate}`
-                      : 'Pay schedule not detected'}
-                  </p>
                   {state.userA.paySchedule && (
                     <p className="text-sm text-muted-foreground">
                       Next pay date: {(() => {
@@ -372,11 +383,6 @@ setState(prev => ({
                 {state.mode === 'joint' && state.userB && (
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Person B</p>
-                    <p className="text-lg font-semibold">
-                      {state.userB.paySchedule
-                        ? `${state.userB.paySchedule.frequency} · Anchor ${state.userB.paySchedule.anchorDate}`
-                        : 'Pay schedule not detected'}
-                    </p>
                     {state.userB.paySchedule && (
                       <p className="text-sm text-muted-foreground">
                         Next pay date: {(() => {
@@ -396,42 +402,55 @@ setState(prev => ({
               {(() => {
                 const a = categorizeBankTransactions(state.userA.transactions);
                 const b = state.mode === 'joint' && state.userB ? categorizeBankTransactions(state.userB.transactions) : null;
-                const wageBlock = (label: string, pay: PaySchedule | null, update: (ps: PaySchedule) => void, avg?: number) => (
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium">{label} · Detected Wages</p>
-                    <div className="rounded-md border p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                      <div>
-                        <label className="text-xs text-muted-foreground">Frequency</label>
-                        <select
-                          className="mt-1 w-full border rounded-md h-9 bg-background"
-                          value={pay?.frequency ?? 'MONTHLY'}
-                          onChange={(e) => update({ ...(pay ?? { frequency: 'MONTHLY', anchorDate: new Date().toISOString().slice(0,10) } as any), frequency: e.target.value as any })}
-                        >
-                          {['WEEKLY','FORTNIGHTLY','BIWEEKLY','FOUR_WEEKLY','MONTHLY'].map(f => (
-                            <option key={f} value={f}>{f}</option>
-                          ))}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs text-muted-foreground">Anchor date</label>
-                        <Input
-                          type="date"
-                          value={pay?.anchorDate ?? ''}
-                          onChange={(e) => update({ ...(pay ?? { frequency: 'MONTHLY', anchorDate: e.target.value } as any), anchorDate: e.target.value })}
-                        />
-                      </div>
-                      <div className="self-end text-sm text-muted-foreground">
-                        Avg amount detected: {avg ? formatCurrency(avg) : '—'}
+                const wageBlock = (
+                  label: string,
+                  pay: PaySchedule | null,
+                  wages: Transaction[],
+                  who: 'A' | 'B'
+                ) => {
+                  const avgOcc = wages.length ? wages.reduce((s, w) => s + w.amount, 0) / wages.length : undefined;
+                  const factor: Record<NonNullable<PaySchedule['frequency']>, number> = {
+                    WEEKLY: 52 / 12,
+                    FORTNIGHTLY: 26 / 12,
+                    BIWEEKLY: 26 / 12,
+                    FOUR_WEEKLY: 13 / 12,
+                    MONTHLY: 1,
+                  } as const;
+                  const monthly = avgOcc && pay?.frequency ? avgOcc * (factor[pay.frequency] ?? 1) : undefined;
+                  const confirmed = who === 'A' ? state.wageConfirmedA : (state.wageConfirmedB ?? false);
+
+                  return (
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium">{label} · Detected Wages</p>
+                      <div className="rounded-md border p-4 space-y-2">
+                        <p className="text-sm">Is this your net salary and frequency?</p>
+                        <div className="text-sm text-muted-foreground">
+                          Detected: {pay ? pay.frequency : 'Unknown'} • Avg per month: {monthly ? formatCurrency(monthly) : '—'}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            checked={confirmed}
+                            onCheckedChange={(v) =>
+                              setState((prev) => ({
+                                ...prev,
+                                ...(who === 'A'
+                                  ? { wageConfirmedA: !!v }
+                                  : { wageConfirmedB: !!v }),
+                              }))
+                            }
+                          />
+                          <span className="text-sm">Yes, confirm</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
+                  );
+                };
 
                 return (
                   <div className="space-y-8">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {wageBlock('Person A', state.userA.paySchedule, (ps) => setState(prev => ({ ...prev, userA: { ...prev.userA, paySchedule: ps } })), a.wages.length ? (a.wages.reduce((s,w)=>s+w.amount,0)/a.wages.length) : undefined)}
-                      {state.mode === 'joint' && state.userB && wageBlock('Person B', state.userB.paySchedule, (ps) => setState(prev => ({ ...prev, userB: prev.userB ? { ...prev.userB, paySchedule: ps } : prev.userB })), b?.wages.length ? (b.wages.reduce((s,w)=>s+w.amount,0)/b.wages.length) : undefined)}
+                      {wageBlock('Person A', state.userA.paySchedule, a.wages, 'A')}
+                      {state.mode === 'joint' && state.userB && b && wageBlock('Person B', state.userB.paySchedule, b.wages, 'B')}
                     </div>
 
                     <div className="space-y-3">
