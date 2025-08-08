@@ -1,0 +1,56 @@
+[
+  {
+    "id": "tx_001_b",
+    "date": "2024-01-12",
+    "description": "SALARY PAYMENT - TECH SOLUTIONS LTD",
+    "amount": 2850.00,
+    "balance": 3012.45,
+    "category": "wages",
+    "type": "credit"
+  },
+  {
+    "id": "tx_002_b",
+    "date": "2024-01-05",
+    "description": "PHONE BILL - THREE IRELAND",
+    "amount": -65.99,
+    "balance": 162.45,
+    "category": "bills",
+    "type": "debit"
+  },
+  {
+    "id": "tx_003_b",
+    "date": "2024-01-08",
+    "description": "NETFLIX SUBSCRIPTION",
+    "amount": -12.99,
+    "balance": 149.46,
+    "category": "bills",
+    "type": "debit"
+  },
+  {
+    "id": "tx_004_b",
+    "date": "2024-01-15",
+    "description": "CAR INSURANCE - AVIVA",
+    "amount": -245.00,
+    "balance": -95.54,
+    "category": "bills",
+    "type": "debit"
+  },
+  {
+    "id": "tx_005_b",
+    "date": "2024-01-20",
+    "description": "GROCERY SHOPPING - TESCO",
+    "amount": -85.43,
+    "balance": 2927.02,
+    "category": "misc",
+    "type": "debit"
+  },
+  {
+    "id": "tx_006_b",
+    "date": "2024-01-26",
+    "description": "SALARY PAYMENT - TECH SOLUTIONS LTD",
+    "amount": 2850.00,
+    "balance": 5777.02,
+    "category": "wages",
+    "type": "credit"
+  }
+]

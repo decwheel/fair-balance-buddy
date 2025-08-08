@@ -1,0 +1,209 @@
+export interface TariffRates {
+  supplier: string;
+  plan: string;
+  meterType: '24HR' | 'DAY_NIGHT' | 'SMART_TOU';
+  standingChargeDaily: number; // € per day
+  vatRate: number; // e.g., 0.135 for 13.5%
+  rates: {
+    [bandName: string]: number; // € per kWh
+  };
+  billingPeriodDays?: number;
+  confidence: number; // 0-1 confidence in extraction
+}
+
+export interface BillPdfParseResult {
+  tariff: TariffRates | null;
+  billTotal?: number;
+  billingPeriod?: {
+    start: string;
+    end: string;
+    days: number;
+  };
+  meterReadings?: {
+    start: number;
+    end: number;
+    usage: number;
+  };
+  errors: string[];
+}
+
+// Mock PDF text extraction for MVP
+export async function extractBillPdfText(file: File): Promise<string> {
+  // In production, this would use PDF.js or similar
+  // For MVP, return mock ESB bill text
+  return `
+ESB Networks
+Electricity Bill
+
+Customer: John Smith
+Address: 123 Main Street, Dublin
+
+Billing Period: 01/01/2024 - 31/01/2024 (30 days)
+Meter Type: Smart TOU
+Plan: Smart Drive
+
+Standing Charge: €0.2850 per day
+VAT: 13.5%
+
+Usage Charges:
+Peak (17:00-19:00): 45.2 kWh @ €0.4200 per kWh = €18.98
+Day (08:00-23:00): 234.8 kWh @ €0.2100 per kWh = €49.31  
+Night (23:00-08:00): 189.6 kWh @ €0.1200 per kWh = €22.75
+
+Standing Charge: 30 days @ €0.2850 = €8.55
+Subtotal: €99.59
+VAT (13.5%): €13.44
+Total Amount Due: €113.03
+
+Due Date: 15/02/2024
+  `;
+}
+
+export async function parseBillPdf(file: File): Promise<BillPdfParseResult> {
+  try {
+    const text = await extractBillPdfText(file);
+    return parseBillText(text);
+  } catch (error) {
+    return {
+      tariff: null,
+      errors: [`Failed to parse PDF: ${error instanceof Error ? error.message : 'Unknown error'}`]
+    };
+  }
+}
+
+export function parseBillText(text: string): BillPdfParseResult {
+  const errors: string[] = [];
+  let confidence = 0;
+  const confidencePoints = {
+    supplier: 10,
+    meterType: 15,
+    standingCharge: 20,
+    rates: 30,
+    vat: 10,
+    billingPeriod: 15
+  };
+
+  // Extract supplier
+  let supplier = 'Unknown';
+  if (text.toLowerCase().includes('esb')) {
+    supplier = 'ESB';
+    confidence += confidencePoints.supplier;
+  } else if (text.toLowerCase().includes('electric ireland')) {
+    supplier = 'Electric Ireland';
+    confidence += confidencePoints.supplier;
+  } else if (text.toLowerCase().includes('bord gais')) {
+    supplier = 'Bord Gais';
+    confidence += confidencePoints.supplier;
+  }
+
+  // Extract meter type
+  let meterType: '24HR' | 'DAY_NIGHT' | 'SMART_TOU' = '24HR';
+  if (text.toLowerCase().includes('smart') || text.toLowerCase().includes('tou')) {
+    meterType = 'SMART_TOU';
+    confidence += confidencePoints.meterType;
+  } else if (text.toLowerCase().includes('day') && text.toLowerCase().includes('night')) {
+    meterType = 'DAY_NIGHT';
+    confidence += confidencePoints.meterType;
+  } else if (text.toLowerCase().includes('24') || text.toLowerCase().includes('standard')) {
+    meterType = '24HR';
+    confidence += confidencePoints.meterType;
+  }
+
+  // Extract standing charge
+  let standingChargeDaily = 0.285; // Default Irish rate
+  const standingChargeMatch = text.match(/standing.*?charge.*?[€]?(\d+\.?\d*)/i);
+  if (standingChargeMatch) {
+    standingChargeDaily = parseFloat(standingChargeMatch[1]);
+    confidence += confidencePoints.standingCharge;
+  }
+
+  // Extract VAT rate
+  let vatRate = 0.135; // Default Irish VAT
+  const vatMatch = text.match(/vat.*?(\d+\.?\d*)%/i);
+  if (vatMatch) {
+    vatRate = parseFloat(vatMatch[1]) / 100;
+    confidence += confidencePoints.vat;
+  }
+
+  // Extract billing period
+  let billingPeriod;
+  const periodMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{4}).*?(\d{1,2}\/\d{1,2}\/\d{4}).*?\((\d+)\s*days?\)/i);
+  if (periodMatch) {
+    billingPeriod = {
+      start: periodMatch[1],
+      end: periodMatch[2],
+      days: parseInt(periodMatch[3])
+    };
+    confidence += confidencePoints.billingPeriod;
+  }
+
+  // Extract rates based on meter type
+  const rates: { [bandName: string]: number } = {};
+  
+  if (meterType === 'SMART_TOU') {
+    // Look for peak/day/night rates
+    const peakMatch = text.match(/peak.*?[€]?(\d+\.?\d*)\s*per\s*kwh/i);
+    const dayMatch = text.match(/day.*?[€]?(\d+\.?\d*)\s*per\s*kwh/i);
+    const nightMatch = text.match(/night.*?[€]?(\d+\.?\d*)\s*per\s*kwh/i);
+    
+    if (peakMatch) rates.peak = parseFloat(peakMatch[1]);
+    if (dayMatch) rates.day = parseFloat(dayMatch[1]);
+    if (nightMatch) rates.night = parseFloat(nightMatch[1]);
+    
+    if (Object.keys(rates).length > 0) {
+      confidence += confidencePoints.rates;
+    }
+  } else if (meterType === 'DAY_NIGHT') {
+    const dayMatch = text.match(/day.*?[€]?(\d+\.?\d*)\s*per\s*kwh/i);
+    const nightMatch = text.match(/night.*?[€]?(\d+\.?\d*)\s*per\s*kwh/i);
+    
+    if (dayMatch) rates.day = parseFloat(dayMatch[1]);
+    if (nightMatch) rates.night = parseFloat(nightMatch[1]);
+    
+    if (Object.keys(rates).length > 0) {
+      confidence += confidencePoints.rates;
+    }
+  } else {
+    // 24HR - single rate
+    const rateMatch = text.match(/[€]?(\d+\.?\d*)\s*per\s*kwh/i);
+    if (rateMatch) {
+      rates.standard = parseFloat(rateMatch[1]);
+      confidence += confidencePoints.rates;
+    }
+  }
+
+  // Extract bill total
+  let billTotal;
+  const totalMatch = text.match(/total.*?amount.*?[€]?(\d+\.?\d*)/i);
+  if (totalMatch) {
+    billTotal = parseFloat(totalMatch[1]);
+  }
+
+  const finalConfidence = confidence / 100;
+
+  if (finalConfidence < 0.6) {
+    errors.push('Low confidence in bill parsing - please review extracted values');
+  }
+
+  if (Object.keys(rates).length === 0) {
+    errors.push('Could not extract electricity rates from bill');
+  }
+
+  const tariff: TariffRates = {
+    supplier,
+    plan: 'Extracted from Bill',
+    meterType,
+    standingChargeDaily,
+    vatRate,
+    rates,
+    billingPeriodDays: billingPeriod?.days,
+    confidence: finalConfidence
+  };
+
+  return {
+    tariff: Object.keys(rates).length > 0 ? tariff : null,
+    billTotal,
+    billingPeriod,
+    errors
+  };
+}

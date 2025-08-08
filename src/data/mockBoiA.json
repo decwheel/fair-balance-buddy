@@ -1,0 +1,65 @@
+[
+  {
+    "id": "tx_001_a",
+    "date": "2024-01-15",
+    "description": "SALARY PAYMENT - ACME CORP",
+    "amount": 3200.00,
+    "balance": 3458.32,
+    "category": "wages",
+    "type": "credit"
+  },
+  {
+    "id": "tx_002_a",
+    "date": "2024-01-03",
+    "description": "EFLOW TOLL CHARGES",
+    "amount": -45.60,
+    "balance": 258.32,
+    "category": "bills",
+    "type": "debit"
+  },
+  {
+    "id": "tx_003_a",
+    "date": "2024-01-05",
+    "description": "ESB ELECTRICITY BILL",
+    "amount": -127.84,
+    "balance": 130.48,
+    "category": "bills",
+    "type": "debit"
+  },
+  {
+    "id": "tx_004_a",
+    "date": "2024-01-10",
+    "description": "IRISH WATER SERVICES",
+    "amount": -89.43,
+    "balance": 41.05,
+    "category": "bills",
+    "type": "debit"
+  },
+  {
+    "id": "tx_005_a",
+    "date": "2024-01-12",
+    "description": "MORTGAGE PAYMENT - AIB",
+    "amount": -1450.00,
+    "balance": -1408.95,
+    "category": "bills",
+    "type": "debit"
+  },
+  {
+    "id": "tx_006_a",
+    "date": "2024-01-18",
+    "description": "GROCERY SHOPPING - SUPERVALU",
+    "amount": -78.92,
+    "balance": 3379.40,
+    "category": "misc",
+    "type": "debit"
+  },
+  {
+    "id": "tx_007_a",
+    "date": "2024-01-29",
+    "description": "SALARY PAYMENT - ACME CORP",
+    "amount": 3200.00,
+    "balance": 6579.40,
+    "category": "wages",
+    "type": "credit"
+  }
+]

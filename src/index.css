@@ -2,41 +2,74 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+/* FairSplit Design System - Financial App Theme
 All colors MUST be HSL.
 */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Core brand colors - Financial trust & reliability */
+    --background: 210 20% 98%;
+    --foreground: 215 25% 16%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 215 25% 16%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 215 25% 16%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Primary - Financial green for success/deposits */
+    --primary: 152 57% 35%;
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 152 57% 30%;
+    --primary-glow: 152 57% 45%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Secondary - Warm gray for neutrals */
+    --secondary: 215 20% 94%;
+    --secondary-foreground: 215 25% 16%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 215 20% 94%;
+    --muted-foreground: 215 16% 50%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Accent - Bright blue for highlights */
+    --accent: 213 94% 68%;
+    --accent-foreground: 0 0% 100%;
+    --accent-hover: 213 94% 60%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Financial state colors */
+    --success: 152 57% 40%;
+    --success-foreground: 0 0% 100%;
+    --warning: 43 96% 50%;
+    --warning-foreground: 215 25% 16%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    /* Chart colors for timeline */
+    --chart-positive: 152 57% 45%;
+    --chart-negative: 0 84% 60%;
+    --chart-neutral: 215 20% 65%;
+    --chart-deposit: 213 94% 68%;
+    --chart-bill: 43 96% 50%;
 
-    --radius: 0.5rem;
+    --border: 215 20% 88%;
+    --input: 215 20% 88%;
+    --ring: 213 94% 68%;
+
+    --radius: 0.75rem;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-hero: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%) 0%, hsl(215 20% 98%) 100%);
+
+    /* Shadows */
+    --shadow-card: 0 4px 6px -1px hsl(215 25% 16% / 0.1), 0 2px 4px -1px hsl(215 25% 16% / 0.06);
+    --shadow-primary: 0 10px 25px -5px hsl(var(--primary) / 0.25);
+    --shadow-accent: 0 10px 25px -5px hsl(var(--accent) / 0.25);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
 
     --sidebar-background: 0 0% 98%;
 
@@ -56,33 +89,54 @@ All colors MUST be HSL.
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --background: 215 28% 9%;
+    --foreground: 215 20% 94%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 215 28% 12%;
+    --card-foreground: 215 20% 94%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 215 28% 12%;
+    --popover-foreground: 215 20% 94%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 152 57% 45%;
+    --primary-foreground: 215 28% 9%;
+    --primary-hover: 152 57% 40%;
+    --primary-glow: 152 57% 55%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 215 25% 18%;
+    --secondary-foreground: 215 20% 94%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 215 25% 18%;
+    --muted-foreground: 215 16% 65%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 213 94% 68%;
+    --accent-foreground: 215 28% 9%;
+    --accent-hover: 213 94% 60%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --success: 152 57% 45%;
+    --success-foreground: 215 28% 9%;
+    --warning: 43 96% 55%;
+    --warning-foreground: 215 28% 9%;
+    --destructive: 0 84% 65%;
+    --destructive-foreground: 215 28% 9%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --chart-positive: 152 57% 50%;
+    --chart-negative: 0 84% 65%;
+    --chart-neutral: 215 20% 50%;
+    --chart-deposit: 213 94% 68%;
+    --chart-bill: 43 96% 55%;
+
+    --border: 215 25% 18%;
+    --input: 215 25% 18%;
+    --ring: 213 94% 68%;
+
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
+    --gradient-hero: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+    --gradient-card: linear-gradient(145deg, hsl(215 28% 12%) 0%, hsl(215 25% 15%) 100%);
+
+    --shadow-card: 0 4px 6px -1px hsl(215 28% 0% / 0.3), 0 2px 4px -1px hsl(215 28% 0% / 0.2);
+    --shadow-primary: 0 10px 25px -5px hsl(var(--primary) / 0.3);
+    --shadow-accent: 0 10px 25px -5px hsl(var(--accent) / 0.3);
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
@@ -100,6 +154,47 @@ All colors MUST be HSL.
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  /* Smooth animations for financial data */
+  .balance-transition {
+    transition: var(--transition-smooth);
+  }
+
+  .deposit-highlight {
+    background: var(--gradient-primary);
+    box-shadow: var(--shadow-primary);
+  }
+
+  .bill-item {
+    transition: var(--transition-smooth);
+  }
+
+  .bill-item:hover {
+    background: hsl(var(--accent) / 0.05);
+    border-color: hsl(var(--accent) / 0.2);
+  }
+
+  /* Chart styling */
+  .recharts-tooltip-wrapper {
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+  }
+
+  /* Financial state indicators */
+  .status-positive {
+    color: hsl(var(--success));
+    background: hsl(var(--success) / 0.1);
+  }
+
+  .status-negative {
+    color: hsl(var(--destructive));
+    background: hsl(var(--destructive) / 0.1);
+  }
+
+  .status-warning {
+    color: hsl(var(--warning));
+    background: hsl(var(--warning) / 0.1);
   }
 }
