@@ -1,3 +1,10 @@
+export interface DiscountRules {
+  unitRatePercent?: number;         // e.g., 0.10 for 10% off unit rates
+  standingChargePercent?: number;   // e.g., 0.10 for 10% off standing charge
+  welcomeCredit?: number;           // € applied once (if applicable)
+  untilDate?: string;               // ISO yyyy-mm-dd when discounts end
+}
+
 export interface TariffRates {
   supplier: string;
   plan: string;
@@ -9,6 +16,8 @@ export interface TariffRates {
   };
   billingPeriodDays?: number;
   confidence: number; // 0-1 confidence in extraction
+  discounts?: DiscountRules;    // optional bill discounts inferred from last bill
+  fitRate?: number;             // optional Feed-in Tariff €/kWh
 }
 
 export interface BillPdfParseResult {

@@ -42,43 +42,126 @@ export async function parseEsbCsv(file: File): Promise<EsbCsvParseResult> {
 }
 
 function processEsbCsvText(text: string): EsbCsvParseResult {
-  const lines = text.trim().split('\n');
+  const lines = text.trim().split(/\r?\n/);
   const readings: EsbReading[] = [];
   const errors: string[] = [];
-  
-  // Skip header if present
-  const dataLines = lines[0].toLowerCase().includes('date') || lines[0].toLowerCase().includes('time') 
-    ? lines.slice(1) 
-    : lines;
-  
-  for (let i = 0; i < dataLines.length; i++) {
-    const line = dataLines[i].trim();
-    if (!line) continue;
-    
-    try {
-      const reading = parseEsbCsvLine(line, i + 1);
-      if (reading) {
-        readings.push(reading);
+
+  if (!lines.length) {
+    return { readings: [], errors: ['Empty file'], totalReadings: 0, dateRange: null };
+  }
+
+  // Header detection (supports: "Read Date, Read Value, Read Type" or simple "DateTime,kWh")
+  const headerCells = lines[0].split(/[,;]+/).map(h => h.trim().toLowerCase());
+  const idx = (prefix: string) => headerCells.findIndex(h => h.startsWith(prefix));
+  const hasStructuredHeader =
+    idx('read date') >= 0 ||
+    idx('datetime') >= 0 ||
+    (headerCells.length === 2 && headerCells[1].includes('kwh'));
+
+  // Use semicolon if found anywhere in the first few lines to avoid decimal-comma issues
+  const detectDelimiter = () => {
+    for (let i = 0; i < Math.min(lines.length, 5); i++) {
+      if (lines[i].includes(';')) return ';';
+    }
+    return ',';
+  };
+  const delimiter = detectDelimiter();
+
+  if (hasStructuredHeader) {
+    const iDate = idx('read date') >= 0 ? idx('read date') : idx('datetime');
+    const iVal  = idx('read value') >= 0 ? idx('read value') : idx('kwh');
+    const iType = idx('read type');
+    const simple2 = headerCells.length === 2 && headerCells[1].includes('kwh');
+
+    let prevImportTS: Date | null = null;
+
+    for (let r = 1; r < lines.length; r++) {
+      const rawLine = lines[r];
+      if (!rawLine || !rawLine.trim()) continue;
+      const cells = rawLine.split(delimiter);
+      if (cells.length < 2) continue;
+
+      // Timestamp
+      const rawTS = (simple2 ? cells[0] : cells[iDate] || '').trim();
+      let ts: Date;
+      try {
+        if (/^\d{2}-\d{2}-\d{4}/.test(rawTS)) {
+          ts = new Date(rawTS.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'));
+        } else if (/^\d{2}\/\d{2}\/\d{4}/.test(rawTS)) {
+          const [d, m, y, rest] = rawTS.split(/[\/ ]/);
+          ts = new Date(`${y}-${m}-${d}${rest ? ' ' + rest : ''}`);
+        } else {
+          ts = new Date(rawTS); // ISO or other
+        }
+      } catch {
+        errors.push(`Line ${r}: invalid date`);
+        continue;
       }
-    } catch (error) {
-      errors.push(`Line ${i + 1}: ${error instanceof Error ? error.message : 'Parse error'}`);
+      if (isNaN(ts as unknown as number) || isNaN(ts.getTime())) {
+        errors.push(`Line ${r}: invalid date`);
+        continue;
+      }
+
+      // Value (handle decimal commas when semicolon-delimited)
+      let valStr = (simple2 ? cells[1] : cells[iVal] || '').replace(/"/g, '').trim();
+      if (delimiter === ';') valStr = valStr.replace(',', '.');
+      const val = parseFloat(valStr);
+      if (isNaN(val)) { errors.push(`Line ${r}: invalid kWh value`); continue; }
+
+      // Type & export filter
+      const typ = (simple2 ? 'import' : (cells[iType] || '')).toLowerCase();
+      const nextCell = cells[iVal + 1] || '';
+      const isExport = typ.includes('export') || /export/i.test(nextCell);
+      if (isExport) {
+        // Ignore export for now; only import is used for billing
+        continue;
+      }
+
+      // kW vs kWh detection
+      const headerValCell = headerCells[iVal] || '';
+      const isKw = !simple2 && (typ.includes('(kw)') || /\(kw\)/i.test(headerValCell));
+
+      let kwh = val;
+      if (isKw) {
+        let intervalMins = 30;
+        if (prevImportTS) {
+          const diff = Math.abs(ts.getTime() - prevImportTS.getTime()) / 60000;
+          if (diff > 0 && diff <= 90) intervalMins = diff;
+        }
+        kwh = val * (intervalMins / 60);
+        prevImportTS = ts;
+      }
+
+      readings.push({ tsISO: ts.toISOString(), kwh });
+      if (!isKw) prevImportTS = ts; // keep for next diff if needed
+    }
+  } else {
+    // Fallback: old simple line-by-line parser
+    const dataLines = headerCells[0]?.includes('date') || headerCells[0]?.includes('time')
+      ? lines.slice(1)
+      : lines;
+
+    for (let i = 0; i < dataLines.length; i++) {
+      const line = dataLines[i].trim();
+      if (!line) continue;
+      try {
+        const reading = parseEsbCsvLine(line, i + 1);
+        if (reading) readings.push(reading);
+      } catch (error) {
+        errors.push(`Line ${i + 1}: ${error instanceof Error ? error.message : 'Parse error'}`);
+      }
     }
   }
-  
+
   // Sort by timestamp
   readings.sort((a, b) => new Date(a.tsISO).getTime() - new Date(b.tsISO).getTime());
-  
+
   const dateRange = readings.length > 0 ? {
     start: readings[0].tsISO,
     end: readings[readings.length - 1].tsISO
   } : null;
-  
-  return {
-    readings,
-    errors,
-    totalReadings: readings.length,
-    dateRange
-  };
+
+  return { readings, errors, totalReadings: readings.length, dateRange };
 }
 
 function parseEsbCsvLine(line: string, lineNumber: number): EsbReading | null {

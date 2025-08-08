@@ -22,6 +22,13 @@ export interface BillEstimate {
     days: number;
   };
   totalKwh: number;
+  discountSummary?: {
+    usageDiscount: number;
+    standingDiscount: number;
+    welcomeCredit: number;
+    fitCredit: number;
+    endsOn?: string;
+  };
 }
 
 export function estimateBill(params: {
