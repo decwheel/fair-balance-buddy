@@ -27,6 +27,8 @@ import { formatCurrency, calculatePayDates } from '@/utils/dateUtils';
 import { generatePredictedBills } from '@/services/tariffEngine';
 import { Calendar as DayPicker } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 
 interface AppState {
@@ -40,6 +42,7 @@ interface AppState {
     paySchedule: PaySchedule | null;
   };
   bills: Bill[];
+  includedBillIds: string[]; // which bills are included in the forecast
   electricityReadings: EsbReading[];
   tariffRates: TariffRates | null;
   forecastResult: {
@@ -50,19 +53,22 @@ interface AppState {
   } | null;
   isLoading: boolean;
   step: 'setup' | 'bank' | 'energy' | 'forecast' | 'results';
+  selectedDate: string | null; // for calendar selection
 }
 
 const Index = () => {
-  const [state, setState] = useState<AppState>({
-    mode: 'single',
-    userA: { transactions: [], paySchedule: null },
-    bills: [],
-    electricityReadings: [],
-    tariffRates: null,
-    forecastResult: null,
-    isLoading: false,
-    step: 'setup'
-  });
+const [state, setState] = useState<AppState>({
+  mode: 'single',
+  userA: { transactions: [], paySchedule: null },
+  bills: [],
+  includedBillIds: [],
+  electricityReadings: [],
+  tariffRates: null,
+  forecastResult: null,
+  isLoading: false,
+  step: 'setup',
+  selectedDate: null
+});
 
   // Load mock bank data
   const loadBankData = async (mode: 'single' | 'joint') => {
@@ -96,15 +102,16 @@ const Index = () => {
         movable: false
       }));
 
-      setState(prev => ({
-        ...prev,
-        mode,
-        userA: { transactions: transactionsA, paySchedule: payScheduleA },
-        userB,
-        bills,
-        isLoading: false,
-        step: 'bank'
-      }));
+setState(prev => ({
+  ...prev,
+  mode,
+  userA: { transactions: transactionsA, paySchedule: payScheduleA },
+  userB,
+  bills,
+  includedBillIds: bills.map(b => b.id!).filter(Boolean),
+  isLoading: false,
+  step: 'bank'
+}));
     } catch (error) {
       console.error('Failed to load bank data:', error);
       setState(prev => ({ ...prev, isLoading: false }));
@@ -143,6 +150,10 @@ const Index = () => {
         ...prev,
         tariffRates: tariff,
         bills: electricityBills.length ? [...prev.bills, ...electricityBills] : prev.bills,
+        includedBillIds: electricityBills.length ? Array.from(new Set([...
+          prev.includedBillIds,
+          ...electricityBills.map(b => b.id!)
+        ])) : prev.includedBillIds,
         step: electricityBills.length ? 'forecast' : prev.step
       };
     });
@@ -155,7 +166,7 @@ const Index = () => {
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      const allBills = state.bills;
+      const allBills = state.bills.filter(b => state.includedBillIds.includes(b.id!));
 
       if (state.mode === 'single') {
         const baselineDeposit = 150; // Better initial guess
@@ -249,7 +260,7 @@ const Index = () => {
               { key: 'forecast', label: 'Forecast', icon: CalendarIcon },
               { key: 'results', label: 'Results', icon: CheckCircle }
             ].map(({ key, label, icon: Icon }) => (
-              <div key={key} className="flex flex-col items-center space-y-2">
+              <div key={key} className="flex flex-col items-center space-y-2 cursor-pointer" onClick={() => setState(prev => ({ ...prev, step: key as AppState['step'] }))}>
                 <div className={`
                   w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors
                   ${state.step === key 
@@ -361,113 +372,107 @@ const Index = () => {
                 )}
               </div>
 
-              {/* Wages & Bills Tables */}
+              {/* Wage confirmation and Bills selection */}
               {(() => {
                 const a = categorizeBankTransactions(state.userA.transactions);
                 const b = state.mode === 'joint' && state.userB ? categorizeBankTransactions(state.userB.transactions) : null;
-                const preview = (items: Transaction[]) => items.slice(0, 6);
-                return (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-3">
-                      <p className="text-sm font-medium">Person A · Wages</p>
-                      <div className="rounded-md border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Description</TableHead>
-                              <TableHead className="text-right">Amount</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {preview(a.wages).map((tx) => (
-                              <TableRow key={tx.id}>
-                                <TableCell>{tx.date}</TableCell>
-                                <TableCell className="truncate max-w-[200px]">{tx.description}</TableCell>
-                                <TableCell className="text-right">{formatCurrency(tx.amount)}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                const wageBlock = (label: string, pay: PaySchedule | null, update: (ps: PaySchedule) => void, avg?: number) => (
+                  <div className="space-y-3">
+                    <p className="text-sm font-medium">{label} · Detected Wages</p>
+                    <div className="rounded-md border p-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                        <label className="text-xs text-muted-foreground">Frequency</label>
+                        <select
+                          className="mt-1 w-full border rounded-md h-9 bg-background"
+                          value={pay?.frequency ?? 'MONTHLY'}
+                          onChange={(e) => update({ ...(pay ?? { frequency: 'MONTHLY', anchorDate: new Date().toISOString().slice(0,10) } as any), frequency: e.target.value as any })}
+                        >
+                          {['WEEKLY','FORTNIGHTLY','BIWEEKLY','FOUR_WEEKLY','MONTHLY'].map(f => (
+                            <option key={f} value={f}>{f}</option>
+                          ))}
+                        </select>
                       </div>
+                      <div>
+                        <label className="text-xs text-muted-foreground">Anchor date</label>
+                        <Input
+                          type="date"
+                          value={pay?.anchorDate ?? ''}
+                          onChange={(e) => update({ ...(pay ?? { frequency: 'MONTHLY', anchorDate: e.target.value } as any), anchorDate: e.target.value })}
+                        />
+                      </div>
+                      <div className="self-end text-sm text-muted-foreground">
+                        Avg amount detected: {avg ? formatCurrency(avg) : '—'}
+                      </div>
+                    </div>
+                  </div>
+                );
 
-                      <p className="text-sm font-medium">Person A · Bills</p>
-                      <div className="rounded-md border">
+                return (
+                  <div className="space-y-8">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {wageBlock('Person A', state.userA.paySchedule, (ps) => setState(prev => ({ ...prev, userA: { ...prev.userA, paySchedule: ps } })), a.wages.length ? (a.wages.reduce((s,w)=>s+w.amount,0)/a.wages.length) : undefined)}
+                      {state.mode === 'joint' && state.userB && wageBlock('Person B', state.userB.paySchedule, (ps) => setState(prev => ({ ...prev, userB: prev.userB ? { ...prev.userB, paySchedule: ps } : prev.userB })), b?.wages.length ? (b.wages.reduce((s,w)=>s+w.amount,0)/b.wages.length) : undefined)}
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="text-sm font-medium">Bills to include in forecast</p>
+                      <div className="rounded-md border overflow-hidden">
                         <Table>
                           <TableHeader>
                             <TableRow>
+                              <TableHead className="w-12">Include</TableHead>
                               <TableHead>Date</TableHead>
-                              <TableHead>Description</TableHead>
-                              <TableHead className="text-right">Amount</TableHead>
+                              <TableHead>Name</TableHead>
+                              <TableHead className="text-right">Amount (€)</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
-                            {preview(a.bills).map((tx) => (
-                              <TableRow key={tx.id}>
-                                <TableCell>{tx.date}</TableCell>
-                                <TableCell className="truncate max-w-[200px]">{tx.description}</TableCell>
-                                <TableCell className="text-right">{formatCurrency(Math.abs(tx.amount))}</TableCell>
-                              </TableRow>
-                            ))}
+                            {state.bills
+                              .filter(b => b.source === 'imported')
+                              .map((b) => (
+                                <TableRow key={b.id}>
+                                  <TableCell>
+                                    <Checkbox
+                                      checked={state.includedBillIds.includes(b.id!)}
+                                      onCheckedChange={(v) => setState(prev => ({
+                                        ...prev,
+                                        includedBillIds: v ? Array.from(new Set([...prev.includedBillIds, b.id!])) : prev.includedBillIds.filter(id => id !== b.id)
+                                      }))}
+                                    />
+                                  </TableCell>
+                                  <TableCell>{b.dueDate}</TableCell>
+                                  <TableCell>
+                                    <Input
+                                      value={b.name}
+                                      onChange={(e) => setState(prev => ({
+                                        ...prev,
+                                        bills: prev.bills.map(x => x.id === b.id ? { ...x, name: e.target.value } : x)
+                                      }))}
+                                    />
+                                  </TableCell>
+                                  <TableCell className="text-right">
+                                    <Input
+                                      type="number"
+                                      value={b.amount}
+                                      onChange={(e) => setState(prev => ({
+                                        ...prev,
+                                        bills: prev.bills.map(x => x.id === b.id ? { ...x, amount: parseFloat(e.target.value || '0') } : x)
+                                      }))}
+                                    />
+                                  </TableCell>
+                                </TableRow>
+                              ))}
                           </TableBody>
                         </Table>
                       </div>
                     </div>
 
-                    {state.mode === 'joint' && b && (
-                      <div className="space-y-3">
-                        <p className="text-sm font-medium">Person B · Wages</p>
-                        <div className="rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Date</TableHead>
-                                <TableHead>Description</TableHead>
-                                <TableHead className="text-right">Amount</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {preview(b.wages).map((tx) => (
-                                <TableRow key={tx.id}>
-                                  <TableCell>{tx.date}</TableCell>
-                                  <TableCell className="truncate max-w-[200px]">{tx.description}</TableCell>
-                                  <TableCell className="text-right">{formatCurrency(tx.amount)}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-
-                        <p className="text-sm font-medium">Person B · Bills</p>
-                        <div className="rounded-md border">
-                          <Table>
-                            <TableHeader>
-                              <TableRow>
-                                <TableHead>Date</TableHead>
-                                <TableHead>Description</TableHead>
-                                <TableHead className="text-right">Amount</TableHead>
-                              </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                              {preview(b.bills).map((tx) => (
-                                <TableRow key={tx.id}>
-                                  <TableCell>{tx.date}</TableCell>
-                                  <TableCell className="truncate max-w-[200px]">{tx.description}</TableCell>
-                                  <TableCell className="text-right">{formatCurrency(Math.abs(tx.amount))}</TableCell>
-                                </TableRow>
-                              ))}
-                            </TableBody>
-                          </Table>
-                        </div>
-                      </div>
-                    )}
+                    <Button className="w-full" onClick={() => setState(prev => ({ ...prev, step: 'energy' }))}>
+                      Continue to Electricity
+                    </Button>
                   </div>
                 );
               })()}
-
-              <Button className="w-full" onClick={() => setState(prev => ({ ...prev, step: 'energy' }))}>
-                Continue to Electricity
-              </Button>
             </CardContent>
           </Card>
         )}
@@ -614,16 +619,12 @@ const Index = () => {
                 if (t.event) eventsByDate.get(key)!.push(t.event);
               });
 
-              const [sel, setSel] = [null, null] as unknown as [string | null, (v: string | null) => void];
-              // Lightweight selection using a closure variable instead of React state to minimize edits.
-              let selectedDate: string | null = null;
-
+              const allEventDates = Array.from(eventsByDate.keys()).sort();
+              const selectedDate = state.selectedDate ?? allEventDates[0] ?? null;
               const handleSelect = (d?: Date) => {
-                selectedDate = d ? new Date(d).toISOString().slice(0,10) : null;
-                // Force a re-render by toggling step quickly
-                setState(prev => ({ ...prev }));
+                const iso = d ? new Date(d).toISOString().slice(0,10) : null;
+                setState(prev => ({ ...prev, selectedDate: iso }));
               };
-
               const selectedEvents = selectedDate ? (eventsByDate.get(selectedDate) || []) : [];
 
               return (
@@ -639,6 +640,7 @@ const Index = () => {
                     <div className="rounded-md border p-4">
                       <DayPicker
                         mode="single"
+                        selected={selectedDate ? new Date(selectedDate) : undefined}
                         onSelect={handleSelect as any}
                       />
                     </div>
