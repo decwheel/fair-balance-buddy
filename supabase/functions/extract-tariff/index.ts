@@ -32,9 +32,6 @@ Deno.serve(async (req) => {
   }
 
   const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
-  if (!OPENAI_API_KEY) {
-    return Response.json({ error: 'Missing OPENAI_API_KEY secret' }, { status: 500 });
-  }
 
   let body: any = {};
   try {
@@ -65,6 +62,15 @@ Deno.serve(async (req) => {
         ...(userText ? [{ type: 'text', text: userText }] : []),
       ],
     });
+  }
+
+  // Status check without calling OpenAI
+  if (text === 'STATUS_CHECK') {
+    return Response.json({ ok: true, function: 'extract-tariff', hasOpenAIKey: Boolean(OPENAI_API_KEY) });
+  }
+
+  if (!OPENAI_API_KEY) {
+    return Response.json({ error: 'Missing OPENAI_API_KEY secret' }, { status: 500 });
   }
 
   try {

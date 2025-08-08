@@ -26,8 +26,9 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
   const checkAiStatus = useCallback(async () => {
     try {
       setAiStatus({ state: 'checking' });
-      await parseBillWithAI({ text: 'STATUS_CHECK' });
-      setAiStatus({ state: 'ok', message: 'Edge Function reachable ✓' });
+      const result: any = await parseBillWithAI({ text: 'STATUS_CHECK' });
+      const hasKey = !!(result && result.hasOpenAIKey);
+      setAiStatus({ state: 'ok', message: hasKey ? 'Edge Function ✓ • OpenAI key detected' : 'Edge Function ✓ • Missing OPENAI_API_KEY' });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       setAiStatus({ state: 'error', message });
