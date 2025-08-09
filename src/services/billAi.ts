@@ -23,14 +23,23 @@ export async function parseBillWithAI(req: AiParseRequest) {
 }
 
 export async function checkAiStatus() {
-  const res = await fetch('/functions/v1/extract-tariff', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: 'STATUS_CHECK' }),
-  });
-  if (!res.ok) {
-    const t = await res.text();
-    throw new Error(`AI status failed: ${res.status} ${t}`);
+  // Try POST health-check first, then fallback to GET ?status=1
+  try {
+    const res = await fetch('/functions/v1/extract-tariff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'STATUS_CHECK' }),
+    });
+    if (!res.ok) {
+      throw new Error(`${res.status} ${await res.text()}`);
+    }
+    return res.json();
+  } catch (_) {
+    const res2 = await fetch('/functions/v1/extract-tariff?status=1', { method: 'GET' });
+    if (!res2.ok) {
+      const t2 = await res2.text();
+      throw new Error(`AI status failed: ${res2.status} ${t2}`);
+    }
+    return res2.json();
   }
-  return res.json();
 }

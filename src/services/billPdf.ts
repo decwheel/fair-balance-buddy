@@ -189,17 +189,51 @@ export function parseBillText(text: string): BillPdfParseResult {
     confidence += confidencePoints.vat;
   }
 
-  // Extract billing period
-  let billingPeriod;
-  const periodMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{4}).*?(\d{1,2}\/\d{1,2}\/\d{4}).*?\((\d+)\s*days?\)/i);
-  if (periodMatch) {
-    billingPeriod = {
-      start: periodMatch[1],
-      end: periodMatch[2],
-      days: parseInt(periodMatch[3])
-    };
-    confidence += confidencePoints.billingPeriod;
+// Extract billing period (robust)
+let billingPeriod: { start: string; end: string; days: number } | undefined;
+const periodMatch = text.match(/(\d{1,2}\/\d{1,2}\/\d{4}).*?(\d{1,2}\/\d{1,2}\/\d{4}).*?\((\d+)\s*days?\)/i);
+
+// Helper date parser supporting multiple formats
+const parseDate = (s: string): Date | null => {
+  const t = s.trim();
+  const m = t.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if (m) {
+    const d = parseInt(m[1], 10), mo = parseInt(m[2], 10), y = parseInt(m[3], 10);
+    const Y = y < 100 ? 2000 + y : y;
+    return new Date(Y, mo - 1, d);
   }
+  const d2 = new Date(t);
+  return isNaN(d2.getTime()) ? null : d2;
+};
+const toIso = (d: Date) => d.toISOString().split('T')[0];
+
+if (periodMatch) {
+  billingPeriod = {
+    start: periodMatch[1],
+    end: periodMatch[2],
+    days: parseInt(periodMatch[3], 10)
+  };
+  confidence += confidencePoints.billingPeriod;
+} else {
+  // Look for two dates without explicit "(xx days)"
+  const pairPatterns = [
+    /(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})\s*(?:to|-)\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+    /(\d{1,2}\s*[A-Za-z]{3,9}\s*\d{4})\s*(?:to|-)\s*(\d{1,2}\s*[A-Za-z]{3,9}\s*\d{4})/i,
+  ];
+  for (const rx of pairPatterns) {
+    const m = text.match(rx);
+    if (m) {
+      const s = parseDate(m[1]);
+      const e = parseDate(m[2]);
+      if (s && e) {
+        const days = Math.max(1, Math.round((e.getTime() - s.getTime()) / 86400000) + 1);
+        billingPeriod = { start: toIso(s), end: toIso(e), days };
+        confidence += confidencePoints.billingPeriod;
+        break;
+      }
+    }
+  }
+}
 
   // Extract rates based on meter type
   const rates: { [bandName: string]: number } = {};
@@ -243,14 +277,22 @@ export function parseBillText(text: string): BillPdfParseResult {
     billTotal = parseFloat(totalMatch[1]);
   }
 
-  // Extract due date (if present)
-  let nextDueDateIso: string | undefined;
-  const dueMatch = text.match(/due\s*date:\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
-  if (dueMatch) {
-    const [d, m, y] = dueMatch[1].split('/').map((n) => parseInt(n, 10));
-    const iso = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    nextDueDateIso = iso;
-  }
+// Extract due date (if present)
+let nextDueDateIso: string | undefined;
+const duePatterns = [
+  /due\s*date[: ]*\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+  /(payment\s*due|due\s*by)[: ]*\s*(\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i,
+  /(due\s*date|payment\s*due|direct\s*debit\s*on)[: ]*\s*(\d{1,2}\s*[A-Za-z]{3,9}\s*\d{4})/i,
+];
+let dueText: string | undefined;
+for (const rx of duePatterns) {
+  const m = text.match(rx);
+  if (m) { dueText = (m[1] || m[2]) as string; break; }
+}
+if (dueText) {
+  const d = parseDate(dueText);
+  if (d) nextDueDateIso = d.toISOString().split('T')[0];
+}
 
   const finalConfidence = confidence / 100;
 
