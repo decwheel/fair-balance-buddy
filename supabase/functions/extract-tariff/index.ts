@@ -27,10 +27,12 @@ interface BillPdfParseResult {
 }
 
 Deno.serve(async (req) => {
-  // Cope with environments that pass a relative URL
-  const url = new URL(req.url, 'http://edge');
+  // Cope with environments that pass a relative URL; fall back to string search
+  let url: URL | null = null;
+  try { url = new URL(req.url, 'http://edge'); } catch (_) { url = null; }
   // Lightweight GET health check: /functions/v1/extract-tariff?status=1
-  if (req.method === 'GET' && url.searchParams.get('status') !== null) {
+  const isStatusCheck = req.method === 'GET' && (url?.searchParams.get('status') !== null || req.url.includes('status='));
+  if (isStatusCheck) {
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');
     return Response.json({ ok: true, function: 'extract-tariff', hasOpenAIKey: Boolean(OPENAI_API_KEY) });
   }
