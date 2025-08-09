@@ -27,7 +27,8 @@ interface BillPdfParseResult {
 }
 
 Deno.serve(async (req) => {
-  const url = new URL(req.url);
+  // Cope with environments that pass a relative URL
+  const url = new URL(req.url, 'http://edge');
   // Lightweight GET health check: /functions/v1/extract-tariff?status=1
   if (req.method === 'GET' && url.searchParams.get('status') !== null) {
     const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY');

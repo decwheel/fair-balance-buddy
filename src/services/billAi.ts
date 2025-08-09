@@ -23,19 +23,19 @@ export async function parseBillWithAI(req: AiParseRequest) {
 }
 
 export async function checkAiStatus() {
-  // Try POST health-check first, then fallback to GET ?status=1
+  // Try GET health-check first (tolerates relative URLs in Edge), then fallback to POST
   try {
-    const res = await fetch('/functions/v1/extract-tariff', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: 'STATUS_CHECK' }),
-    });
+    const res = await fetch(`/functions/v1/extract-tariff?status=1&_=${Date.now()}`, { method: 'GET' });
     if (!res.ok) {
       throw new Error(`${res.status} ${await res.text()}`);
     }
     return res.json();
   } catch (_) {
-    const res2 = await fetch('/functions/v1/extract-tariff?status=1', { method: 'GET' });
+    const res2 = await fetch('/functions/v1/extract-tariff', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: 'STATUS_CHECK' }),
+    });
     if (!res2.ok) {
       const t2 = await res2.text();
       throw new Error(`AI status failed: ${res2.status} ${t2}`);
@@ -43,3 +43,4 @@ export async function checkAiStatus() {
     return res2.json();
   }
 }
+
