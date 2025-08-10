@@ -678,6 +678,34 @@ setState(prev => ({
                 if (t.event) eventsByDate.get(key)!.push(t.event);
               });
 
+              // Prepare helpers for balances and rendering
+              const timeline = [...state.forecastResult!.timeline].sort((a, b) => a.date.localeCompare(b.date));
+              const getBalanceForDate = (d: Date) => {
+                const iso = d.toISOString().slice(0, 10);
+                let bal = timeline[0]?.balance ?? 0;
+                for (const t of timeline) {
+                  if (t.date <= iso) bal = t.balance; else break;
+                }
+                return bal;
+              };
+
+              const CustomDayContent = (props: any) => {
+                const date: Date = props.date;
+                const iso = date.toISOString().slice(0, 10);
+                const hasEvents = eventsByDate.has(iso);
+                const bal = getBalanceForDate(date);
+                const isNeg = bal < 0;
+                return (
+                  <div className="flex flex-col items-center justify-center">
+                    <span className="leading-none">{date.getDate()}</span>
+                    <span className={`text-[10px] leading-none ${isNeg ? 'text-destructive' : 'text-muted-foreground'}`}>
+                      {Math.round(bal)}
+                    </span>
+                    {hasEvents && <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />}
+                  </div>
+                );
+              };
+
               const allEventDates = Array.from(eventsByDate.keys()).sort();
               const selectedDate = state.selectedDate ?? allEventDates[0] ?? null;
               const handleSelect = (d?: Date) => {
@@ -699,8 +727,11 @@ setState(prev => ({
                     <div className="rounded-md border p-4">
                       <DayPicker
                         mode="single"
+                        showOutsideDays
+                        defaultMonth={selectedDate ? new Date(selectedDate) : (allEventDates[0] ? new Date(allEventDates[0]) : new Date())}
                         selected={selectedDate ? new Date(selectedDate) : undefined}
                         onSelect={handleSelect as any}
+                        components={{ DayContent: CustomDayContent }}
                       />
                     </div>
                     <div className="rounded-md border p-4">
