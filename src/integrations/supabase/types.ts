@@ -14,7 +14,54 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      bills: {
+        Row: {
+          amount: number
+          created_at: string
+          due_date: string
+          frequency: string
+          id: string
+          movable: boolean
+          name: string
+          recurrence_anchor: string | null
+          recurrence_interval: number
+          series_id: string | null
+          source: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          due_date: string
+          frequency?: string
+          id?: string
+          movable?: boolean
+          name: string
+          recurrence_anchor?: string | null
+          recurrence_interval?: number
+          series_id?: string | null
+          source?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          due_date?: string
+          frequency?: string
+          id?: string
+          movable?: boolean
+          name?: string
+          recurrence_anchor?: string | null
+          recurrence_interval?: number
+          series_id?: string | null
+          source?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
