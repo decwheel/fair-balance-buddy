@@ -30,6 +30,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
+import { BillEditorDialog, BillFrequency } from '@/components/bills/BillEditorDialog';
+import { generateOccurrences } from '@/utils/recurrence';
+import { persistBills } from '@/services/supabaseBills';
+import { useToast } from '@/components/ui/use-toast';
 
 interface AppState {
   mode: 'single' | 'joint';
@@ -74,6 +78,11 @@ const [state, setState] = useState<AppState>({
   selectedDate: null,
   electricityMode: 'csv'
 });
+
+  const [billDialogOpen, setBillDialogOpen] = useState(false);
+  const [billEditing, setBillEditing] = useState<Bill | null>(null);
+  const { toast } = useToast();
+
 
   // Load mock bank data
   const loadBankData = async (mode: 'single' | 'joint') => {
@@ -270,6 +279,86 @@ setState(prev => ({
       console.error('Forecast failed:', error);
       setState(prev => ({ ...prev, isLoading: false }));
     }
+  };
+
+  // Add/Edit bill handler
+  const handleBillSubmit = async (values: { name: string; amount: number; dueDate: string; frequency: BillFrequency }) => {
+    const seriesId = (globalThis.crypto && 'randomUUID' in globalThis.crypto) ? (globalThis.crypto as any).randomUUID() : `series_${Date.now()}`;
+
+    if (billEditing) {
+      // Simple edit of a single occurrence
+      setState(prev => ({
+        ...prev,
+        bills: prev.bills.map(b => b.id === billEditing.id ? { ...b, name: values.name, amount: values.amount, dueDate: values.dueDate } : b)
+      }));
+      setBillEditing(null);
+      toast({ description: 'Bill updated. Recalculating forecast…' });
+      runForecast();
+      return;
+    }
+
+    // Generate occurrences based on frequency
+    const dates = generateOccurrences(values.dueDate, values.frequency, 12);
+    const newBills: Bill[] = dates.map((d, idx) => ({
+      id: `${seriesId}_${idx}`,
+      name: values.name,
+      amount: values.amount,
+      issueDate: d,
+      dueDate: d,
+      source: 'manual' as const,
+      movable: false,
+    }));
+
+    // Update local state
+    setState(prev => ({
+      ...prev,
+      bills: [...prev.bills, ...newBills],
+      includedBillIds: Array.from(new Set([...prev.includedBillIds, ...newBills.map(b => b.id!)]))
+    }));
+
+    // Persist to Supabase if authenticated
+    persistBills(newBills.map(nb => ({
+      name: nb.name,
+      amount: nb.amount,
+      due_date: nb.dueDate,
+      frequency: values.frequency,
+      recurrence_anchor: values.dueDate,
+      recurrence_interval: 1,
+      series_id: seriesId,
+      movable: nb.movable,
+      source: nb.source
+    }))).then(({ persisted, count }) => {
+      if (persisted) {
+        toast({ description: `${count} bill${count === 1 ? '' : 's'} saved to your account.` });
+      } else {
+        toast({ description: 'Saved locally. Sign in to persist bills to your account.' });
+      }
+    });
+
+    // Suggest deposit change from the pay date before the first due date
+    const earliest = dates[0];
+    const startDate = (() => {
+      const payA = state.userA.paySchedule;
+      if (!payA) return new Date().toISOString().slice(0,10);
+      const pays = calculatePayDates(payA.frequency, payA.anchorDate, 18);
+      const before = pays.filter(p => p <= earliest);
+      return before.length ? before[before.length - 1] : pays[0];
+    })();
+
+    const allBills = [...state.bills, ...newBills].filter(b => state.includedBillIds.includes(b.id!) || newBills.some(nb => nb.id === b.id));
+    if (state.mode === 'single') {
+      const baseline = 150;
+      const dep = findDepositSingle(startDate, state.userA.paySchedule!, allBills, baseline);
+      toast({ description: `From ${startDate}, set your deposit to ${formatCurrency(dep)} to stay above zero.` });
+    } else if (state.userB?.paySchedule) {
+      const baseline = 800;
+      const fairness = 0.55;
+      const { depositA, depositB } = findDepositJoint(startDate, state.userA.paySchedule!, state.userB.paySchedule!, allBills, fairness, baseline);
+      toast({ description: `From ${startDate}, set deposits to ${formatCurrency(depositA)} (A) and ${formatCurrency(depositB)} (B).` });
+    }
+
+    // Re-run forecast with updated bills
+    runForecast();
   };
 
   return (
@@ -713,6 +802,7 @@ setState(prev => ({
                 setState(prev => ({ ...prev, selectedDate: iso }));
               };
               const selectedEvents = selectedDate ? (eventsByDate.get(selectedDate) || []) : [];
+              const billsOnSelected = selectedDate ? state.bills.filter(b => b.dueDate === selectedDate) : [];
 
               return (
                 <Card>
@@ -721,7 +811,7 @@ setState(prev => ({
                       <CalendarIcon className="w-5 h-5" />
                       Forecast Calendar
                     </CardTitle>
-                    <CardDescription>Select a date to see transactions due that day.</CardDescription>
+                    <CardDescription>Select a date to see transactions due that day, add bills, or edit existing ones.</CardDescription>
                   </CardHeader>
                   <CardContent className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div className="rounded-md border p-4">
@@ -734,23 +824,53 @@ setState(prev => ({
                         components={{ DayContent: CustomDayContent }}
                       />
                     </div>
-                    <div className="rounded-md border p-4">
-                      <p className="text-sm font-medium mb-3">Transactions on Selected Date</p>
-                      {selectedDate ? (
-                        selectedEvents.length ? (
-                          <ul className="list-disc pl-5 space-y-2">
-                            {selectedEvents.map((e, i) => (
-                              <li key={i}>{e}</li>
+                    <div className="rounded-md border p-4 space-y-4">
+                      <div>
+                        <p className="text-sm font-medium mb-2">Transactions on Selected Date</p>
+                        {selectedDate ? (
+                          selectedEvents.length ? (
+                            <ul className="list-disc pl-5 space-y-2">
+                              {selectedEvents.map((e, i) => (
+                                <li key={i}>{e}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">No transactions on {selectedDate}.</p>
+                          )
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Pick a date to view transactions.</p>
+                        )}
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-medium">Bills on this date</p>
+                          <Button size="sm" onClick={() => setBillDialogOpen(true)} disabled={!selectedDate}>Add Bill</Button>
+                        </div>
+                        {selectedDate && billsOnSelected.length > 0 ? (
+                          <ul className="space-y-2">
+                            {billsOnSelected.map((b) => (
+                              <li key={b.id} className="flex items-center justify-between text-sm">
+                                <span className="truncate mr-2">{b.name} — {formatCurrency(b.amount)}</span>
+                                <Button size="sm" variant="outline" onClick={() => { setBillEditing(b); setBillDialogOpen(true); }}>Edit</Button>
+                              </li>
                             ))}
                           </ul>
                         ) : (
-                          <p className="text-sm text-muted-foreground">No transactions on {selectedDate}.</p>
-                        )
-                      ) : (
-                        <p className="text-sm text-muted-foreground">Pick a date to view transactions.</p>
-                      )}
+                          <p className="text-sm text-muted-foreground">No saved bills on this date.</p>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
+
+                  {/* Bill Editor Dialog */}
+                  <BillEditorDialog
+                    open={billDialogOpen}
+                    onOpenChange={(o) => { setBillDialogOpen(o); if (!o) setBillEditing(null); }}
+                    initialDate={selectedDate || undefined}
+                    initialValues={billEditing ? { name: billEditing.name, amount: billEditing.amount, dueDate: billEditing.dueDate, frequency: 'one-off' as BillFrequency } : undefined}
+                    onSubmit={handleBillSubmit}
+                  />
                 </Card>
               );
             })()}
