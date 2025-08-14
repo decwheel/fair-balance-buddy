@@ -23,7 +23,7 @@ import { loadMockTransactionsA, loadMockTransactionsB, categorizeBankTransaction
 import { EsbReading } from '@/services/esbCsv';
 import { TariffRates } from '@/services/billPdf';
 import { Bill, PaySchedule, findDepositSingle, findDepositJoint, runSingle, runJoint } from '@/services/forecastAdapters';
-import { formatCurrency, calculatePayDates } from '@/utils/dateUtils';
+import { formatCurrency, calculatePayDates, nextBusinessDay } from '@/utils/dateUtils';
 import { predictBills, ElectricityMode } from '@/services/electricityPredictors';
 import { Calendar as DayPicker } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -207,18 +207,28 @@ setState(prev => ({
 
   // Helper to get deposit anchor date based on pay schedule
   const getDepositAnchorDate = (paySchedule: PaySchedule): string => {
-    const today = new Date();
-    const lastPayDate = new Date(paySchedule.anchorDate);
+    const today = new Date().toISOString().split('T')[0];
     
     if (paySchedule.frequency === 'MONTHLY') {
-      // For monthly pay, deposits should start on the 1st of next month
-      const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
-      return nextMonth.toISOString().split('T')[0];
+      // For monthly pay, deposits should start on the 1st of current or next month
+      const now = new Date();
+      let firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      
+      // If we're past the 1st of this month, use the 1st of next month
+      if (now.getDate() > 1) {
+        firstOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      }
+      
+      const firstOfMonthStr = firstOfMonth.toISOString().split('T')[0];
+      return nextBusinessDay(firstOfMonthStr);
     } else {
-      // For weekly/fortnightly, calculate next pay date after today
-      const payDates = calculatePayDates(paySchedule.frequency, paySchedule.anchorDate, 6); // 6 months ahead
-      const nextPayDate = payDates.find(date => date > today.toISOString().split('T')[0]);
-      return nextPayDate || today.toISOString().split('T')[0];
+      // For weekly/fortnightly, use the actual pay dates
+      const payDates = calculatePayDates(paySchedule.frequency, paySchedule.anchorDate, 6);
+      const nextPayDate = payDates.find(date => date > today);
+      if (nextPayDate) {
+        return nextBusinessDay(nextPayDate);
+      }
+      return nextBusinessDay(today);
     }
   };
 
