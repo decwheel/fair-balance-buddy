@@ -205,6 +205,23 @@ setState(prev => ({
     });
   };
 
+  // Helper to get deposit anchor date based on pay schedule
+  const getDepositAnchorDate = (paySchedule: PaySchedule): string => {
+    const today = new Date();
+    const lastPayDate = new Date(paySchedule.anchorDate);
+    
+    if (paySchedule.frequency === 'MONTHLY') {
+      // For monthly pay, deposits should start on the 1st of next month
+      const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+      return nextMonth.toISOString().split('T')[0];
+    } else {
+      // For weekly/fortnightly, calculate next pay date after today
+      const payDates = calculatePayDates(paySchedule.frequency, paySchedule.anchorDate, 6); // 6 months ahead
+      const nextPayDate = payDates.find(date => date > today.toISOString().split('T')[0]);
+      return nextPayDate || today.toISOString().split('T')[0];
+    }
+  };
+
   const runForecast = () => {
     if (!state.userA.paySchedule) return;
 
@@ -217,9 +234,17 @@ setState(prev => ({
 
       if (state.mode === 'single') {
         const baselineDeposit = 150; // Better initial guess
+        
+        // Use deposit anchor date based on pay schedule
+        const depositAnchor = getDepositAnchorDate(state.userA.paySchedule!);
+        const payScheduleWithDepositDate: PaySchedule = {
+          ...state.userA.paySchedule!,
+          anchorDate: depositAnchor
+        };
+        
         const optimalDeposit = findDepositSingle(
           today,
-          state.userA.paySchedule!,
+          payScheduleWithDepositDate,
           allBills,
           baselineDeposit
         );
@@ -227,7 +252,7 @@ setState(prev => ({
         const result = runSingle(
           optimalDeposit,
           today,
-          state.userA.paySchedule!,
+          payScheduleWithDepositDate,
           allBills,
           { months: 12, buffer: 0 }
         );
@@ -246,10 +271,23 @@ setState(prev => ({
         const baselineDeposit = 800; // Joint initial guess
         const fairnessRatio = 0.55; // 55% for user A
         
+        // Use deposit anchor dates based on pay schedules
+        const depositAnchorA = getDepositAnchorDate(state.userA.paySchedule!);
+        const depositAnchorB = getDepositAnchorDate(state.userB.paySchedule!);
+        
+        const payScheduleAWithDepositDate: PaySchedule = {
+          ...state.userA.paySchedule!,
+          anchorDate: depositAnchorA
+        };
+        const payScheduleBWithDepositDate: PaySchedule = {
+          ...state.userB.paySchedule!,
+          anchorDate: depositAnchorB
+        };
+        
         const { depositA, depositB } = findDepositJoint(
           today,
-          state.userA.paySchedule!,
-          state.userB.paySchedule!,
+          payScheduleAWithDepositDate,
+          payScheduleBWithDepositDate,
           allBills,
           fairnessRatio,
           baselineDeposit
@@ -259,8 +297,8 @@ setState(prev => ({
           depositA,
           depositB,
           today,
-          state.userA.paySchedule!,
-          state.userB.paySchedule!,
+          payScheduleAWithDepositDate,
+          payScheduleBWithDepositDate,
           allBills,
           { months: 12, fairnessRatioA: fairnessRatio }
         );
