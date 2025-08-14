@@ -33,6 +33,7 @@ import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import { BillEditorDialog, BillFrequency } from '@/components/bills/BillEditorDialog';
 import { generateOccurrences } from '@/utils/recurrence';
 import { persistBills } from '@/services/supabaseBills';
+import { rollForwardPastBills } from '@/utils/billUtils';
 import { useToast } from '@/components/ui/use-toast';
 
 interface AppState {
@@ -211,7 +212,8 @@ setState(prev => ({
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      const allBills = state.bills.filter(b => state.includedBillIds.includes(b.id!));
+      const selectedBills = state.bills.filter(b => state.includedBillIds.includes(b.id!));
+      const allBills = rollForwardPastBills(selectedBills);
 
       if (state.mode === 'single') {
         const baselineDeposit = 150; // Better initial guess
@@ -568,26 +570,9 @@ setState(prev => ({
                                       }))}
                                     />
                                   </TableCell>
-                                  <TableCell>{b.dueDate}</TableCell>
-                                  <TableCell>
-                                    <Input
-                                      value={b.name}
-                                      onChange={(e) => setState(prev => ({
-                                        ...prev,
-                                        bills: prev.bills.map(x => x.id === b.id ? { ...x, name: e.target.value } : x)
-                                      }))}
-                                    />
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    <Input
-                                      type="number"
-                                      value={b.amount}
-                                      onChange={(e) => setState(prev => ({
-                                        ...prev,
-                                        bills: prev.bills.map(x => x.id === b.id ? { ...x, amount: parseFloat(e.target.value || '0') } : x)
-                                      }))}
-                                    />
-                                  </TableCell>
+                                  <TableCell className="text-sm">{b.dueDate}</TableCell>
+                                  <TableCell className="text-sm">{b.name}</TableCell>
+                                  <TableCell className="text-right font-medium">€{b.amount.toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
                           </TableBody>
