@@ -209,6 +209,9 @@ setState(prev => ({
   const getDepositAnchorDate = (paySchedule: PaySchedule): string => {
     const today = new Date().toISOString().split('T')[0];
     
+    console.log('getDepositAnchorDate - Input paySchedule:', paySchedule);
+    console.log('getDepositAnchorDate - Today:', today);
+    
     if (paySchedule.frequency === 'MONTHLY') {
       // For monthly pay, deposits should start on the 1st of current or next month
       const now = new Date();
@@ -220,15 +223,21 @@ setState(prev => ({
       }
       
       const firstOfMonthStr = firstOfMonth.toISOString().split('T')[0];
-      return nextBusinessDay(firstOfMonthStr);
+      const result = nextBusinessDay(firstOfMonthStr);
+      console.log('getDepositAnchorDate - MONTHLY result:', result);
+      return result;
     } else {
       // For weekly/fortnightly, use the actual pay dates
       const payDates = calculatePayDates(paySchedule.frequency, paySchedule.anchorDate, 6);
       const nextPayDate = payDates.find(date => date > today);
+      let result;
       if (nextPayDate) {
-        return nextBusinessDay(nextPayDate);
+        result = nextBusinessDay(nextPayDate);
+      } else {
+        result = nextBusinessDay(today);
       }
-      return nextBusinessDay(today);
+      console.log('getDepositAnchorDate - WEEKLY/FORTNIGHTLY result:', result);
+      return result;
     }
   };
 
