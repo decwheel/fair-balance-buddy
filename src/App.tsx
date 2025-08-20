@@ -11,6 +11,7 @@ import { usePlanStore } from "./store/usePlanStore";
 import type { PlanInputs, SimResult, Transaction } from "./types";
 import { toast } from "sonner";
 import mockA from "./fixtures/mock-a-boi-transactions.json";
+import mockB from "./fixtures/mock-b-boi-transactions.json";
 import { mapBoiToTransactions } from "./lib/txMap";
 // ✅ Vite worker import – gives you a Worker constructor
 import SimWorker from "./workers/simWorker.ts?worker";
@@ -35,7 +36,6 @@ function App() {
     // helpful error hooks
     w.addEventListener("error", (e) => {
       // Some browsers don't populate message—log everything we can
-      // @ts-expect-error
       console.error("[simWorker] error:", e.message, e.filename, e.lineno, e.colno, e);
       toast.error(`Worker error: ${e.message || "see console"}`);
     });
@@ -64,51 +64,89 @@ function App() {
     return () => w.terminate();
   }, []);
 
-  // Helper: run detection, write to store, apply best salary, then recalc
-  const runDetection = async (tx: Transaction[]) => {
+  // Helper: run detection for single or joint mode
+  const runDetection = async (txA: Transaction[], txB?: Transaction[]) => {
     if (!apiRef.current) return;
-    const res = await apiRef.current.analyzeTransactions(tx);
-    setDetected(res);
+    
+    const resA = await apiRef.current.analyzeTransactions(txA);
+    
+    // For joint mode, also analyze user B's transactions
+    let resB;
+    if (txB) {
+      resB = await apiRef.current.analyzeTransactions(txB);
+    }
+    
+    setDetected(resA);
 
-    // 1) Salary: force monthly with per-occurrence amount (4500),
-    //    so the banner shows “monthly · €4,500”
-    const c = res.salaries?.[0];
-    if (c) {
-      setInputs({
-        a: {
-          netMonthly: c.amount,     // 4500 exactly
-          freq: "monthly",          // show monthly, not four_weekly
-          firstPayISO: c.firstSeen, // any day within that month is fine
-        },
-      });
+    // 1) Salary for user A
+    const cA = resA.salaries?.[0];
+    const inputsUpdate: any = {};
+    
+    if (cA) {
+      inputsUpdate.a = {
+        netMonthly: cA.amount,
+        freq: "monthly",
+        firstPayISO: cA.firstSeen,
+      };
+    }
+    
+    // 2) For joint mode, also set user B's salary
+    if (resB) {
+      const cB = resB.salaries?.[0];
+      if (cB) {
+        inputsUpdate.b = {
+          netMonthly: cB.amount,
+          freq: "monthly", 
+          firstPayISO: cB.firstSeen,
+        };
+      }
+      inputsUpdate.mode = "joint";
+    } else {
+      inputsUpdate.mode = "single";
     }
 
-    // 2) Bills: push detected recurring into inputs.bills so the table fills
-    const detectedBills = (res.recurring ?? []).map((r, i) => ({
-      id: `det-${i}`,
+    // 3) Bills: combine bills from both users if in joint mode
+    const billsA = (resA.recurring ?? []).map((r, i) => ({
+      id: `det-a-${i}`,
       name: r.description,
       amount: r.amount,
       account: "A" as const,
-      // give the UI a date to show; use last observed sample (good enough for review)
       dueDateISO: r.sampleDates?.[r.sampleDates.length - 1],
-      // optionally: dueDay: r.dueDay, // if your UI shows DOM instead of a date
     }));
-    setInputs({ bills: detectedBills });
-
-    await recalc(); // recompute so balances & “next pay date” refresh
+    
+    const billsB = resB ? (resB.recurring ?? []).map((r, i) => ({
+      id: `det-b-${i}`,
+      name: r.description,
+      amount: r.amount,
+      account: "B" as const,
+      dueDateISO: r.sampleDates?.[r.sampleDates.length - 1],
+    })) : [];
+    
+    inputsUpdate.bills = [...billsA, ...billsB];
+    
+    setInputs(inputsUpdate);
+    await recalc();
   };
 
-  // SINGLE MODE: auto-load a dataset and detect on mount
+  // AUTO-LOAD: start with single mode using mock A
   useEffect(() => {
     if (!ready) return;
-    // If you want to start with the mock data automatically:
-    const tx = mapBoiToTransactions(mockA as any);
-    setTransactions(tx);
-    runDetection(tx).catch(err => {
+    const txA = mapBoiToTransactions(mockA as any);
+    setTransactions(txA);
+    runDetection(txA).catch(err => {
       console.error("[auto detect] failed:", err);
       toast.error("Auto-detect failed (see console)");
     });
   }, [ready]);
+
+  // Function to switch to joint mode
+  const switchToJointMode = async () => {
+    if (!apiRef.current) return;
+    const txA = mapBoiToTransactions(mockA as any);
+    const txB = mapBoiToTransactions(mockB as any);
+    setTransactions(txA); // Store A's transactions as primary
+    await runDetection(txA, txB);
+  };
 
   async function recalc() {
     if (!apiRef.current) return;
@@ -196,7 +234,14 @@ function App() {
             onClick={analyzeMockA}
             className="px-3 py-2 rounded-md border bg-white dark:bg-neutral-900 text-sm"
           >
-            Analyze mock A (worker)
+            Analyze mock A (single)
+          </button>
+          <button
+            disabled={!ready}
+            onClick={switchToJointMode}
+            className="px-3 py-2 rounded-md border bg-white dark:bg-neutral-900 text-sm"
+          >
+            Switch to Joint Mode
           </button>
           {result && (
             <div className="text-xs opacity-75 bg-white/70 dark:bg-black/40 backdrop-blur px-2 py-1 rounded">

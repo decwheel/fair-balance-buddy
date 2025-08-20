@@ -59,7 +59,7 @@ function inferDayOfWeek(observedYmd: string[] = []) {
 
 function analyseDatePattern(dateStrings: string[] = []) {
   if (dateStrings.length < 2) return { frequency: "" as const };
-  const dates = dateStrings.map(parseISO).sort((a,b) => a.getTime()-b.getTime());
+  const dates = dateStrings.map(dateStr => parseISO(dateStr)).sort((a,b) => a.getTime()-b.getTime());
   const gaps  = dates.slice(1).map((d,i) => differenceInDays(d, dates[i]));
   const total = gaps.length;
   const cnt = (lo:number,hi:number) => gaps.filter(g => g>=lo && g<=hi).length;
