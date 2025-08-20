@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { usePlanStore } from '@/store/usePlanStore';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -34,7 +35,15 @@ import { BillEditorDialog, BillFrequency } from '@/components/bills/BillEditorDi
 import { generateOccurrences } from '@/utils/recurrence';
 import { persistBills } from '@/services/supabaseBills';
 import { rollForwardPastBills } from '@/utils/billUtils';
+import type { RecurringItem, SalaryCandidate } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
+
+// UI metadata used to render the Pattern column (keep anchor, drop "last …")
+type RecurringMeta = Record<
+  string,
+  { freq: string; last: string; dueDay?: number; dayOfWeek?: number }
+>;
+
 
 interface AppState {
   mode: 'single' | 'joint';
@@ -83,6 +92,12 @@ const [state, setState] = useState<AppState>({
   const [billDialogOpen, setBillDialogOpen] = useState(false);
   const [billEditing, setBillEditing] = useState<Bill | null>(null);
   const { toast } = useToast();
+  const [recurringMeta, setRecurringMeta] = useState<RecurringMeta>({});
+
+  // 🔌 NEW: read worker detections (salary + recurring) from the store
+  const { detected, inputs } = usePlanStore();
+  const topSalary: SalaryCandidate | undefined = detected?.salaries?.[0];
+  const recurringFromStore: RecurringItem[] = detected?.recurring ?? [];
 
 
   // Load mock bank data
@@ -102,46 +117,17 @@ const [state, setState] = useState<AppState>({
         userB = { transactions: transactionsB, paySchedule: payScheduleB };
       }
 
-      // Convert bill transactions to Bill objects (top recurring per person)
-      function topRecurring(trans: Transaction[], take: number): Transaction[] {
-        const bills = categorizeBankTransactions(trans).bills;
-        const groups = new Map<string, { count: number; tx: Transaction }>();
-        bills.forEach(tx => {
-          const key = (tx.description || '').toUpperCase().replace(/\s+/g, ' ').trim();
-          const g = groups.get(key);
-          if (!g) groups.set(key, { count: 1, tx }); else g.count++;
-          // keep the latest transaction as representative
-          if (g && new Date(tx.date) > new Date(g.tx.date)) groups.set(key, { count: (g?.count||1), tx });
-        });
-        return Array.from(groups.values())
-          .sort((a,b) => b.count - a.count)
-          .slice(0, take)
-          .map(g => g.tx);
-      }
-
-      const aTop = topRecurring(transactionsA, mode === 'joint' ? 6 : 6);
-      const bTop = mode === 'joint' && userB ? topRecurring(userB.transactions, 11) : [];
-      const billTxs = mode === 'joint' 
-        ? [...aTop, ...bTop]
-        : aTop;
-
-      const bills: Bill[] = billTxs.map((tx, idx) => ({
-        id: tx.id || `${mode}-${idx}`,
-        name: tx.description,
-        amount: Math.abs(tx.amount),
-        issueDate: tx.date,
-        dueDate: tx.date, // Simplified for MVP
-        source: 'imported' as const,
-        movable: false
-      }));
+      // ❌ Don’t seed UI bills from mock categorisation.
+      // We want the worker’s detections to be the source of truth shown in the table.
 
 setState(prev => ({
   ...prev,
   mode,
   userA: { transactions: transactionsA, paySchedule: payScheduleA },
   userB,
-  bills,
-  includedBillIds: bills.map(b => b.id!).filter(Boolean),
+  // ⚠️ Keep whatever the worker may have already populated
+  bills: prev.bills,
+  includedBillIds: prev.includedBillIds,
   isLoading: false,
   step: 'bank'
 }));
@@ -149,6 +135,60 @@ setState(prev => ({
       console.error('Failed to load bank data:', error);
       setState(prev => ({ ...prev, isLoading: false }));
     }
+  };
+
+  // 🔁 NEW: whenever worker/store detections change, hydrate the page state from them
+  useEffect(() => {
+    if (!detected || !recurringFromStore.length) return;
+    // Map worker-recurring → UI Bill[] and collect display metadata (freq, last, dueDay)
+    const meta: RecurringMeta = {};
+    const importedFromDetected: Bill[] = recurringFromStore.map((r, i) => {
+      const lastDate =
+        (r.sampleDates && r.sampleDates.length
+          ? [...r.sampleDates].sort().slice(-1)[0]
+          : '') || '';
+      const id = `det-${i}`;
+      meta[id] = {
+        freq: r.freq,
+        last: lastDate,
+        dueDay: (r as any).dueDay,
+        dayOfWeek: (r as any).dayOfWeek,
+      };
+      return {
+        id,
+        name: r.description,
+        amount: r.amount,
+        issueDate: lastDate,
+        dueDate: lastDate,
+        // Tag rows coming from the worker so the table can select only these.
+        source: 'detected' as any,
+        movable: false,
+      };
+    });
+    setRecurringMeta(meta);
+    setState(prev => ({
+        ...prev,
+        bills: [
+          // keep any non-worker bills (eg. predicted-electricity, manual)
+          ...prev.bills.filter(
+            b => (b as any).source !== 'detected' && !String(b.id || '').startsWith('det-')
+          ),
+          ...importedFromDetected,
+        ],
+        includedBillIds: importedFromDetected.map(b => b.id!),
+      }));
+    // Re-run when worker detections are present OR when bank data loads
+    }, [detected, state.userA.transactions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Render a compact pattern string (no "last …" – that's already the Date column)
+  const dowShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const formatPattern = (m?: RecurringMeta[string]) => {
+    if (!m) return '—';
+    const f = (m.freq || '').toLowerCase();
+    if (f === 'monthly' && m.dueDay) return `monthly · day ${m.dueDay}`;
+    if ((f === 'weekly' || f === 'fortnightly') && m.dayOfWeek != null)
+      return `${f} · ${dowShort[m.dayOfWeek]}`;
+    return f || '—';
   };
 
   const handleEnergyReadings = (readings: EsbReading[]) => {
@@ -564,8 +604,17 @@ setState(prev => ({
                     FOUR_WEEKLY: 13 / 12,
                     MONTHLY: 1,
                   } as const;
-                  const monthly = avgOcc && pay?.frequency ? avgOcc * (factor[pay.frequency] ?? 1) : undefined;
+                  // 🧠 Prefer worker/store salary if available
+                  // ✅ Use inputs (already coerced to monthly & per-occurrence amount)
+                  const monthlyFromInputs = inputs?.a?.netMonthly;
+                  const freqFromInputs = inputs?.a?.freq ? String(inputs.a.freq).toUpperCase() : undefined;
+
+                  // Fallback to the old local average if worker hasn’t populated yet
+                  const monthly =
+                    monthlyFromInputs ??
+                    (avgOcc && pay?.frequency ? avgOcc * (factor[pay.frequency] ?? 1) : undefined);
                   const confirmed = who === 'A' ? state.wageConfirmedA : (state.wageConfirmedB ?? false);
+                  const lastSeenFromStore = topSalary?.firstSeen;
 
                   return (
                     <div className="space-y-3">
@@ -573,7 +622,9 @@ setState(prev => ({
                       <div className="rounded-md border p-4 space-y-2">
                         <p className="text-sm">Is this your net salary and frequency?</p>
                         <div className="text-sm text-muted-foreground">
-                          Detected: {pay ? pay.frequency : 'Unknown'} • Avg per month: {monthly ? formatCurrency(monthly) : '—'}
+                          Detected: {freqFromInputs ?? (pay ? pay.frequency : 'Unknown')}
+                          {' '}• Avg per month: {monthly ? formatCurrency(monthly) : '—'}
+                          {lastSeenFromStore ? <> • Last seen: {lastSeenFromStore}</> : null}
                         </div>
                         <div className="flex items-center gap-2">
                           <Checkbox
@@ -610,12 +661,14 @@ setState(prev => ({
                               <TableHead className="w-12">Include</TableHead>
                               <TableHead>Date</TableHead>
                               <TableHead>Name</TableHead>
+                              <TableHead>Pattern</TableHead>
                               <TableHead className="text-right">Amount (€)</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {state.bills
-                              .filter(b => b.source === 'imported')
+                              // Only show bills produced by the worker
+                              .filter(b => (b as any).source === 'detected' || String(b.id || '').startsWith('det-'))
                               .map((b) => (
                                 <TableRow key={b.id}>
                                   <TableCell>
@@ -629,6 +682,9 @@ setState(prev => ({
                                   </TableCell>
                                   <TableCell className="text-sm">{b.dueDate}</TableCell>
                                   <TableCell className="text-sm">{b.name}</TableCell>
+                                  <TableCell className="text-sm">
+                                    {formatPattern(recurringMeta[b.id!])}
+                                  </TableCell>
                                   <TableCell className="text-right font-medium">€{b.amount.toFixed(2)}</TableCell>
                                 </TableRow>
                               ))}
@@ -687,7 +743,9 @@ setState(prev => ({
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Bank Bills</p>
                   <Badge variant="secondary">
-                    {state.bills.filter(b => b.source === 'imported').length} selected
+                    {state.bills.filter(
+                      b => (b as any).source === 'detected' || String(b.id || '').startsWith('det-')
+                    ).length} selected
                   </Badge>
                 </div>
                 <div className="space-y-2">

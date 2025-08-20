@@ -1,0 +1,1103 @@
+{
+  "transactions": [
+    {
+      "transactionId": "7EE767F83268004533647661CD9433",
+      "bookingDate": "2025-04-01",
+      "valueDate": "2025-04-01",
+      "bookingDateTime": "2025-04-01T00:00:00+01:00",
+      "valueDateTime": "2025-04-01T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-750.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  BOI MASTE",
+      "proprietaryBankTransactionCode": "551",
+      "internalTransactionId": "b8a8702da9e33088c9e07bcede264599"
+    },
+    {
+      "transactionId": "14E27AC94368004533616F06572B48",
+      "bookingDate": "2025-04-01",
+      "valueDate": "2025-04-01",
+      "bookingDateTime": "2025-04-01T00:00:00+01:00",
+      "valueDateTime": "2025-04-01T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-474.07",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "Fairyhouse Creche  SO",
+      "proprietaryBankTransactionCode": "390",
+      "internalTransactionId": "e928a7397ea20fe933f04119a8ee3968"
+    },
+    {
+      "transactionId": "AA8186E5FF67014333296EE8AB8F73",
+      "bookingDate": "2025-03-03",
+      "valueDate": "2025-03-03",
+      "bookingDateTime": "2025-03-03T00:00:00+00:00",
+      "valueDateTime": "2025-03-03T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-474.07",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "Fairyhouse Creche  SO",
+      "proprietaryBankTransactionCode": "390",
+      "internalTransactionId": "72fb394b3e9fb08f7fde803d643410f1"
+    },
+    {
+      "transactionId": "6A08BC71716701433330F62E6B5AA6",
+      "bookingDate": "2025-03-03",
+      "valueDate": "2025-03-03",
+      "bookingDateTime": "2025-03-03T00:00:00+00:00",
+      "valueDateTime": "2025-03-03T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-474.07",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "29555835           SO",
+      "proprietaryBankTransactionCode": "390",
+      "internalTransactionId": "22698970939cf34f8d74f80f963b7fd3"
+    },
+    {
+      "transactionId": "46A1A2D802661384361534372FB0E9",
+      "bookingDate": "2025-02-04",
+      "valueDate": "2025-02-04",
+      "bookingDateTime": "2025-02-04T00:00:00+00:00",
+      "valueDateTime": "2025-02-04T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-300.59",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "29555835           SO",
+      "proprietaryBankTransactionCode": "390",
+      "internalTransactionId": "7ce7958e3579bd0767195e207302bdf7"
+    },
+    {
+      "transactionId": "B80D20643A684343465037B71C5DB7",
+      "bookingDate": "2025-04-15",
+      "valueDate": "2025-04-15",
+      "bookingDateTime": "2025-04-15T00:00:00+01:00",
+      "valueDateTime": "2025-04-15T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-259.27",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS14APR ALDI 8 873",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "e15c63c3551a5c5e27eecb8b744982c0"
+    },
+    {
+      "transactionId": "9D9CA6FA136613843617EDDB54FC95",
+      "bookingDate": "2025-02-04",
+      "valueDate": "2025-02-04",
+      "bookingDateTime": "2025-02-04T00:00:00+00:00",
+      "valueDateTime": "2025-02-04T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-244.94",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS02FEB TESCO STORES",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "7b058dd60df172d693793f4aa6ca02a4"
+    },
+    {
+      "transactionId": "049808830C67281774960E10E9E8FE",
+      "bookingDate": "2025-03-11",
+      "valueDate": "2025-03-11",
+      "bookingDateTime": "2025-03-11T00:00:00+00:00",
+      "valueDateTime": "2025-03-11T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-236.90",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS10MAR TESCO STORES",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "82b66fd9c45f9019f1b7ecc78a42e29b"
+    },
+    {
+      "transactionId": "D2827EB28367754487304D7122C6FE",
+      "bookingDate": "2025-03-26",
+      "valueDate": "2025-03-26",
+      "bookingDateTime": "2025-03-26T00:00:00+00:00",
+      "valueDateTime": "2025-03-26T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-231.92",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS25MAR TESCO STORES",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "e239ca9129d0bd7e95f817d9a95bec63"
+    },
+    {
+      "transactionId": "6050378F48685777179027407BA92D",
+      "bookingDate": "2025-04-22",
+      "valueDate": "2025-04-22",
+      "bookingDateTime": "2025-04-22T00:00:00+01:00",
+      "valueDateTime": "2025-04-22T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-222.52",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS21APR TESCO STORES",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "02390a87ee129e9db4b86ab95668df5a"
+    },
+    {
+      "transactionId": "FAF38FDDF26661974151C735851B29",
+      "bookingDate": "2025-02-19",
+      "valueDate": "2025-02-19",
+      "bookingDateTime": "2025-02-19T00:00:00+00:00",
+      "valueDateTime": "2025-02-19T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-212.47",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS18FEB TESCO STORES",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "a73ff2d10d444d26395a7c9ddf0bd1b4"
+    },
+    {
+      "transactionId": "E51083A4BA6800453360BED143DBA7",
+      "bookingDate": "2025-04-01",
+      "valueDate": "2025-04-01",
+      "bookingDateTime": "2025-04-01T00:00:00+01:00",
+      "valueDateTime": "2025-04-01T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-176.81",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "HOGAN DIRECT  SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "50ae7e4b9e0a7882286f15545410f4a1"
+    },
+    {
+      "transactionId": "CA14D61E68670143332757ED886299",
+      "bookingDate": "2025-03-03",
+      "valueDate": "2025-03-03",
+      "bookingDateTime": "2025-03-03T00:00:00+00:00",
+      "valueDateTime": "2025-03-03T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-176.81",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "HOGAN DIRECT  SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "b0221181f427a2aa6b92461229ce6a3d"
+    },
+    {
+      "transactionId": "DE07D8A0D0661384361221FE67E11C",
+      "bookingDate": "2025-02-04",
+      "valueDate": "2025-02-04",
+      "bookingDateTime": "2025-02-04T00:00:00+00:00",
+      "valueDateTime": "2025-02-04T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-176.81",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "HOGAN DIRECT  SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "6c21b81b5e262a6fca96773822f81005"
+    },
+    {
+      "transactionId": "5C69EFCADF6830624674FCB7EA3ECF",
+      "bookingDate": "2025-04-11",
+      "valueDate": "2025-04-11",
+      "bookingDateTime": "2025-04-11T00:00:00+01:00",
+      "valueDateTime": "2025-04-11T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-100.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "aeb04c2cbc3bfe2bdbf90191918e72c6"
+    },
+    {
+      "transactionId": "C3C943CB98663445265648A40D0F97",
+      "bookingDate": "2025-02-10",
+      "valueDate": "2025-02-10",
+      "bookingDateTime": "2025-02-10T00:00:00+00:00",
+      "valueDateTime": "2025-02-10T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-100.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "850d500b61b2367ece719502668f91ad"
+    },
+    {
+      "transactionId": "B3B94A54AE6801406618EE7B905592",
+      "bookingDate": "2025-04-02",
+      "valueDate": "2025-04-02",
+      "bookingDateTime": "2025-04-02T00:00:00+01:00",
+      "valueDateTime": "2025-04-02T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-87.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "SKY DIGITAL   SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "f46a2af103f80d3927b56a8568d45354"
+    },
+    {
+      "transactionId": "CF1718805A67014333282B9987ED57",
+      "bookingDate": "2025-03-03",
+      "valueDate": "2025-03-03",
+      "bookingDateTime": "2025-03-03T00:00:00+00:00",
+      "valueDateTime": "2025-03-03T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-87.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "SKY DIGITAL   SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "bc49b6560a3ca241a169c2953a5a9f93"
+    },
+    {
+      "transactionId": "D579C998576811517452A49FC8EF84",
+      "bookingDate": "2025-04-04",
+      "valueDate": "2025-04-04",
+      "bookingDateTime": "2025-04-04T00:00:00+01:00",
+      "valueDateTime": "2025-04-04T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-75.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "d44d49a1f515a29105843b2c7ad1e6df"
+    },
+    {
+      "transactionId": "9AF91194BE6785624651BD0A22D77F",
+      "bookingDate": "2025-03-28",
+      "valueDate": "2025-03-28",
+      "bookingDateTime": "2025-03-28T00:00:00+00:00",
+      "valueDateTime": "2025-03-28T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-75.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "c7ee5dec8396d130eeea7a3930ab2efd"
+    },
+    {
+      "transactionId": "8F22581E74676893526228D77BC519",
+      "bookingDate": "2025-03-24",
+      "valueDate": "2025-03-24",
+      "bookingDateTime": "2025-03-24T00:00:00+00:00",
+      "valueDateTime": "2025-03-24T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-75.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "e647441a11aeb09e02179d957653d946"
+    },
+    {
+      "transactionId": "A08027210B6755493566D3284E6F48",
+      "bookingDate": "2025-03-20",
+      "valueDate": "2025-03-20",
+      "bookingDateTime": "2025-03-20T00:00:00+00:00",
+      "valueDateTime": "2025-03-20T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-75.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "fe72774b5d91ed848546ada8de11f957"
+    },
+    {
+      "transactionId": "E669CDD37B67207796280CEB81D63D",
+      "bookingDate": "2025-03-10",
+      "valueDate": "2025-03-10",
+      "bookingDateTime": "2025-03-10T00:00:00+00:00",
+      "valueDateTime": "2025-03-10T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-75.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "e9c6ed8c54a1d9fe657280e0024c1a14"
+    },
+    {
+      "transactionId": "AB00C87F1D6826979026D0602E27F7",
+      "bookingDate": "2025-04-10",
+      "valueDate": "2025-04-10",
+      "bookingDateTime": "2025-04-10T00:00:00+01:00",
+      "valueDateTime": "2025-04-10T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-63.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "EIR           SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "d4da88973d91500703a9ceecc330dd5a"
+    },
+    {
+      "transactionId": "1924688EF067337099875338D65C50",
+      "bookingDate": "2025-03-13",
+      "valueDate": "2025-03-13",
+      "bookingDateTime": "2025-03-13T00:00:00+00:00",
+      "valueDateTime": "2025-03-13T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-63.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "EIR           SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "3ce04d1acbe13a16b14b8a08435b5053"
+    },
+    {
+      "transactionId": "00A429B37866378480450B650A7A40",
+      "bookingDate": "2025-02-11",
+      "valueDate": "2025-02-11",
+      "bookingDateTime": "2025-02-11T00:00:00+00:00",
+      "valueDateTime": "2025-02-11T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-63.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "EIR           SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "3cede244e944467de55d61f324b8d9a9"
+    },
+    {
+      "transactionId": "8112B8C5056801406617EAADFD3DF9",
+      "bookingDate": "2025-04-02",
+      "valueDate": "2025-04-02",
+      "bookingDateTime": "2025-04-02T00:00:00+01:00",
+      "valueDateTime": "2025-04-02T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-52.38",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "OP/NEW IRELAN SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "14350a93881e8942868375590390c49d"
+    },
+    {
+      "transactionId": "C56CA21F746701433326211CC2BBEC",
+      "bookingDate": "2025-03-03",
+      "valueDate": "2025-03-03",
+      "bookingDateTime": "2025-03-03T00:00:00+00:00",
+      "valueDateTime": "2025-03-03T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-52.38",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "OP/NEW IRELAN SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "e93c80c58e048d9d358af0a00d0c8868"
+    },
+    {
+      "transactionId": "FCA48D53DF66138436130227F771E3",
+      "bookingDate": "2025-02-04",
+      "valueDate": "2025-02-04",
+      "bookingDateTime": "2025-02-04T00:00:00+00:00",
+      "valueDateTime": "2025-02-04T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-52.38",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "OP/NEW IRELAN SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "4020d935ccadb366f71c798db3c0aba4"
+    },
+    {
+      "transactionId": "FC1841F80068014066198039DDCBAF",
+      "bookingDate": "2025-04-02",
+      "valueDate": "2025-04-02",
+      "bookingDateTime": "2025-04-02T00:00:00+01:00",
+      "valueDateTime": "2025-04-02T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-50.98",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS01APR HUMMGROUP",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "e554f3beb33995445b5d141e732e95a4"
+    },
+    {
+      "transactionId": "3B1B84C44B6701433331DFE8D7DBB7",
+      "bookingDate": "2025-03-03",
+      "valueDate": "2025-03-03",
+      "bookingDateTime": "2025-03-03T00:00:00+00:00",
+      "valueDateTime": "2025-03-03T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-50.98",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS01MAR HUMMGROUP",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "a51ca468e2f69c104c37811bad01ab2a"
+    },
+    {
+      "transactionId": "D6F96CABC86613843616DBE646E9C0",
+      "bookingDate": "2025-02-04",
+      "valueDate": "2025-02-04",
+      "bookingDateTime": "2025-02-04T00:00:00+00:00",
+      "valueDateTime": "2025-02-04T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-50.98",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS01FEB HUMMGROUP",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "c9d36ed07285eb65cf00bc1ab7c9d9dc"
+    },
+    {
+      "transactionId": "7D7B18BC216811517451CEF9C67F3B",
+      "bookingDate": "2025-04-04",
+      "valueDate": "2025-04-04",
+      "bookingDateTime": "2025-04-04T00:00:00+01:00",
+      "valueDateTime": "2025-04-04T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-44.98",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "EIR           SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "01f0bae5a55c04b44e9449cf109400d1"
+    },
+    {
+      "transactionId": "316139E7A866204241463AD903EBC6",
+      "bookingDate": "2025-02-05",
+      "valueDate": "2025-02-05",
+      "bookingDateTime": "2025-02-05T00:00:00+00:00",
+      "valueDateTime": "2025-02-05T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-44.98",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "EIR           SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "3a089f204efc9054c54ee257156d04ee"
+    },
+    {
+      "transactionId": "7DBB35BA0367446317592D471D04E8",
+      "bookingDate": "2025-03-18",
+      "valueDate": "2025-03-18",
+      "bookingDateTime": "2025-03-18T00:00:00+00:00",
+      "valueDateTime": "2025-03-18T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "43.59",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "621",
+      "internalTransactionId": "358b71556b4dce2b332109c8929f89ed"
+    },
+    {
+      "transactionId": "AFE3D3D8A6660398890226C13B7999",
+      "bookingDate": "2025-01-31",
+      "valueDate": "2025-01-31",
+      "bookingDateTime": "2025-01-31T00:00:00+00:00",
+      "valueDateTime": "2025-01-31T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-40.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "edcb67e0d34111e3667cab909be3b384"
+    },
+    {
+      "transactionId": "9496E9C8B067892407835193604BC0",
+      "bookingDate": "2025-03-31",
+      "valueDate": "2025-03-31",
+      "bookingDateTime": "2025-03-31T00:00:00+01:00",
+      "valueDateTime": "2025-03-31T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "33.52",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "621",
+      "internalTransactionId": "20010fea460497c6c782725170798f2b"
+    },
+    {
+      "transactionId": "428A5DE27466936260933FC8E9BAD6",
+      "bookingDate": "2025-02-28",
+      "valueDate": "2025-02-28",
+      "bookingDateTime": "2025-02-28T00:00:00+00:00",
+      "valueDateTime": "2025-02-28T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-32.12",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "Barna Recycli SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "71564d2fedb6999c5282187f7b7b1af4"
+    },
+    {
+      "transactionId": "0E7E07FEC6659413882635B90CAA4F",
+      "bookingDate": "2025-01-29",
+      "valueDate": "2025-01-29",
+      "bookingDateTime": "2025-01-29T00:00:00+00:00",
+      "valueDateTime": "2025-01-29T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-30.27",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POSC28JAN CENTRA KILC",
+      "proprietaryBankTransactionCode": "221",
+      "internalTransactionId": "927a9f20d668e59a6b2933411727cdea"
+    },
+    {
+      "transactionId": "7EE3697658685777178633525D7299",
+      "bookingDate": "2025-04-22",
+      "valueDate": "2025-04-22",
+      "bookingDateTime": "2025-04-22T00:00:00+01:00",
+      "valueDateTime": "2025-04-22T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-30.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POSC18APR CIRCLE K KI",
+      "proprietaryBankTransactionCode": "221",
+      "internalTransactionId": "66a8495a4e73057640c0598591c7569e"
+    },
+    {
+      "transactionId": "8CD4ED9FFE682132154655F3278734",
+      "bookingDate": "2025-04-08",
+      "valueDate": "2025-04-08",
+      "bookingDateTime": "2025-04-08T00:00:00+01:00",
+      "valueDateTime": "2025-04-08T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-30.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "e3498dbb36b7001865fe516f5b0edc79"
+    },
+    {
+      "transactionId": "90ED38EE106821321545CE9D7959D5",
+      "bookingDate": "2025-04-08",
+      "valueDate": "2025-04-08",
+      "bookingDateTime": "2025-04-08T00:00:00+01:00",
+      "valueDateTime": "2025-04-08T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "20.70",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "621",
+      "internalTransactionId": "1e7945d0a9b5244eeb8c7efaaa627399"
+    },
+    {
+      "transactionId": "768F6BAE5A6849497261AE581E3DAA",
+      "bookingDate": "2025-04-17",
+      "valueDate": "2025-04-17",
+      "bookingDateTime": "2025-04-17T00:00:00+01:00",
+      "valueDateTime": "2025-04-17T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "77f078802d0f2d478f07827a9e9b4b51"
+    },
+    {
+      "transactionId": "2BC93EC4726843434648622D594CA8",
+      "bookingDate": "2025-04-15",
+      "valueDate": "2025-04-15",
+      "bookingDateTime": "2025-04-15T00:00:00+01:00",
+      "valueDateTime": "2025-04-15T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "621",
+      "internalTransactionId": "fe8f4b280513ccddbd2ef9662d28a41b"
+    },
+    {
+      "transactionId": "991DD84C046672305194571730F516",
+      "bookingDate": "2025-02-24",
+      "valueDate": "2025-02-24",
+      "bookingDateTime": "2025-02-24T00:00:00+00:00",
+      "valueDateTime": "2025-02-24T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "e8e68e210c34767b783ad5363adec991"
+    },
+    {
+      "transactionId": "27E1FCA72D6672305193BFAEA140D7",
+      "bookingDate": "2025-02-24",
+      "valueDate": "2025-02-24",
+      "bookingDateTime": "2025-02-24T00:00:00+00:00",
+      "valueDateTime": "2025-02-24T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "2a3caf74a397ec866095c48b4d046324"
+    },
+    {
+      "transactionId": "D2B8982A9966705784262BB1650625",
+      "bookingDate": "2025-02-21",
+      "valueDate": "2025-02-21",
+      "bookingDateTime": "2025-02-21T00:00:00+00:00",
+      "valueDateTime": "2025-02-21T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "d42af86c261a26ff82f209d76a57592d"
+    },
+    {
+      "transactionId": "A8F430524A667057842528FB0630F4",
+      "bookingDate": "2025-02-21",
+      "valueDate": "2025-02-21",
+      "bookingDateTime": "2025-02-21T00:00:00+00:00",
+      "valueDateTime": "2025-02-21T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "70322c63ea6ac3ec710ae2036fc7b859"
+    },
+    {
+      "transactionId": "65409CA94E666568126618D776383B",
+      "bookingDate": "2025-02-20",
+      "valueDate": "2025-02-20",
+      "bookingDateTime": "2025-02-20T00:00:00+00:00",
+      "valueDateTime": "2025-02-20T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "f472e547d8e2d1f57d0ee8b2c4c339ae"
+    },
+    {
+      "transactionId": "02886220756661974152362AD4628B",
+      "bookingDate": "2025-02-19",
+      "valueDate": "2025-02-19",
+      "bookingDateTime": "2025-02-19T00:00:00+00:00",
+      "valueDateTime": "2025-02-19T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "21121c35c30f0f0c200782fe471cb7d5"
+    },
+    {
+      "transactionId": "F2A8AD9AA06659463212CA570E1C9C",
+      "bookingDate": "2025-02-18",
+      "valueDate": "2025-02-18",
+      "bookingDateTime": "2025-02-18T00:00:00+00:00",
+      "valueDateTime": "2025-02-18T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "f05597b1365981e54af39ce889b2222d"
+    },
+    {
+      "transactionId": "29D7BAE48B6652386911CBD64BA08F",
+      "bookingDate": "2025-02-17",
+      "valueDate": "2025-02-17",
+      "bookingDateTime": "2025-02-17T00:00:00+00:00",
+      "valueDateTime": "2025-02-17T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "a2bc81c3e16762b031a2833913b3c02b"
+    },
+    {
+      "transactionId": "467616773E6652386905F94B73B012",
+      "bookingDate": "2025-02-17",
+      "valueDate": "2025-02-17",
+      "bookingDateTime": "2025-02-17T00:00:00+00:00",
+      "valueDateTime": "2025-02-17T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-20.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "ATM15FEB CO GALWAY",
+      "proprietaryBankTransactionCode": "360",
+      "internalTransactionId": "0d4b253720264de07a4d05a8a94337c4"
+    },
+    {
+      "transactionId": "BF45D3FA7A6720779627395ABE71D8",
+      "bookingDate": "2025-03-10",
+      "valueDate": "2025-03-10",
+      "bookingDateTime": "2025-03-10T00:00:00+00:00",
+      "valueDateTime": "2025-03-10T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "16.90",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "621",
+      "internalTransactionId": "c3698f2aadc796116504704c1af86e26"
+    },
+    {
+      "transactionId": "DF0995219A6613843609805BD27190",
+      "bookingDate": "2025-02-04",
+      "valueDate": "2025-02-04",
+      "bookingDateTime": "2025-02-04T00:00:00+00:00",
+      "valueDateTime": "2025-02-04T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "15.24",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "621",
+      "internalTransactionId": "f634ad89dba278c32722b8196c1eb718"
+    },
+    {
+      "transactionId": "6F2DCEF5F46789240785E139F05E23",
+      "bookingDate": "2025-03-31",
+      "valueDate": "2025-03-31",
+      "bookingDateTime": "2025-03-31T00:00:00+01:00",
+      "valueDateTime": "2025-03-31T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-13.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS28MAR Disney Plus",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "513760b0e5fc2bd5722732bc3cfd5fe9"
+    },
+    {
+      "transactionId": "3A33DE5394670143333252769F3925",
+      "bookingDate": "2025-03-03",
+      "valueDate": "2025-03-03",
+      "bookingDateTime": "2025-03-03T00:00:00+00:00",
+      "valueDateTime": "2025-03-03T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-13.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS28FEB Disney Plus",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "5442616e0e19fbd3528788eab0b6892f"
+    },
+    {
+      "transactionId": "20F77327D26594138827DCC2DF98F5",
+      "bookingDate": "2025-01-29",
+      "valueDate": "2025-01-29",
+      "bookingDateTime": "2025-01-29T00:00:00+00:00",
+      "valueDateTime": "2025-01-29T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-13.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS28JAN Disney Plus",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "2ccc2bcb9323bde7a4c30757e22affa6"
+    },
+    {
+      "transactionId": "0BA8EC03126613843608A29EA2B58F",
+      "bookingDate": "2025-02-04",
+      "valueDate": "2025-02-04",
+      "bookingDateTime": "2025-02-04T00:00:00+00:00",
+      "valueDateTime": "2025-02-04T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "12.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  84716670",
+      "proprietaryBankTransactionCode": "621",
+      "internalTransactionId": "bbe9378f3e1d17ae460004209bffbbe5"
+    },
+    {
+      "transactionId": "CD9D56B6D966378480474AF9242747",
+      "bookingDate": "2025-02-11",
+      "valueDate": "2025-02-11",
+      "bookingDateTime": "2025-02-11T00:00:00+00:00",
+      "valueDateTime": "2025-02-11T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-10.81",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "P1002GB  8.99@1.20244",
+      "proprietaryBankTransactionCode": "553",
+      "internalTransactionId": "f4ce4d9d6ade67901b56f7c2e3797383"
+    },
+    {
+      "transactionId": "46EC34EC2768306246752BCC40118F",
+      "bookingDate": "2025-04-11",
+      "valueDate": "2025-04-11",
+      "bookingDateTime": "2025-04-11T00:00:00+01:00",
+      "valueDateTime": "2025-04-11T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-10.54",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "P1004GB  8.99@1.17241",
+      "proprietaryBankTransactionCode": "553",
+      "internalTransactionId": "e1495eeb852a99c1ad9a5cb857c1a922"
+    },
+    {
+      "transactionId": "0013D75845686719024777F0A74788",
+      "bookingDate": "2025-04-23",
+      "valueDate": "2025-04-23",
+      "bookingDateTime": "2025-04-23T00:00:00+01:00",
+      "valueDateTime": "2025-04-23T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-10.10",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "OP/NEW IRELAN SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "6c9b3f99a8470ea5ab6e901d156d1f41"
+    },
+    {
+      "transactionId": "E1C2902FBA676893525870D6F694A0",
+      "bookingDate": "2025-03-24",
+      "valueDate": "2025-03-24",
+      "bookingDateTime": "2025-03-24T00:00:00+00:00",
+      "valueDateTime": "2025-03-24T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-10.10",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "OP/NEW IRELAN SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "ece791f58a2b4aaf93181e0e85e66400"
+    },
+    {
+      "transactionId": "3A241AE6FA6672305190CE06B8DD18",
+      "bookingDate": "2025-02-24",
+      "valueDate": "2025-02-24",
+      "bookingDateTime": "2025-02-24T00:00:00+00:00",
+      "valueDateTime": "2025-02-24T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-10.10",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "OP/NEW IRELAN SEPA DD",
+      "proprietaryBankTransactionCode": "340",
+      "internalTransactionId": "7ade93bbce0a92533789e9a2c156d9fe"
+    },
+    {
+      "transactionId": "54884F727B684949725949D16EDE17",
+      "bookingDate": "2025-04-17",
+      "valueDate": "2025-04-17",
+      "bookingDateTime": "2025-04-17T00:00:00+01:00",
+      "valueDateTime": "2025-04-17T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-9.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS16APR APPLE.COM/BI",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "baea68bd57d58ddee0b34bb660726a44"
+    },
+    {
+      "transactionId": "1FA51F89E367446317635E2DD3A1AB",
+      "bookingDate": "2025-03-18",
+      "valueDate": "2025-03-18",
+      "bookingDateTime": "2025-03-18T00:00:00+00:00",
+      "valueDateTime": "2025-03-18T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-9.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS16MAR APPLE.COM/BI",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "71b01221f8c1d5c9a779ef87a0168ea1"
+    },
+    {
+      "transactionId": "A823F1DD6E6652386908DB3083F0B1",
+      "bookingDate": "2025-02-17",
+      "valueDate": "2025-02-17",
+      "bookingDateTime": "2025-02-17T00:00:00+00:00",
+      "valueDateTime": "2025-02-17T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-9.99",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "POS16FEB APPLE.COM/BI",
+      "proprietaryBankTransactionCode": "545",
+      "internalTransactionId": "98a00eba6628f3789b85fadbbe1a9b79"
+    },
+    {
+      "transactionId": "10900024A6685777180247EF8F8AB3",
+      "bookingDate": "2025-04-22",
+      "valueDate": "2025-04-22",
+      "bookingDateTime": "2025-04-22T00:00:00+01:00",
+      "valueDateTime": "2025-04-22T00:00:00+01:00",
+      "transactionAmount": {
+        "amount": "-5.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "4a52b58e82a1735f0a339778243368f4"
+    },
+    {
+      "transactionId": "88CEE93D0E6672305196DC828EA30E",
+      "bookingDate": "2025-02-24",
+      "valueDate": "2025-02-24",
+      "bookingDateTime": "2025-02-24T00:00:00+00:00",
+      "valueDateTime": "2025-02-24T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-5.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "f06ff69dc97d28e66f05d6122beaf3d6"
+    },
+    {
+      "transactionId": "EFEF3A33DE66723051957E6853CD8C",
+      "bookingDate": "2025-02-24",
+      "valueDate": "2025-02-24",
+      "bookingDateTime": "2025-02-24T00:00:00+00:00",
+      "valueDateTime": "2025-02-24T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-5.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "365 Online  92808567",
+      "proprietaryBankTransactionCode": "548",
+      "internalTransactionId": "d47e5593297c03c61c882fe109ae44cc"
+    },
+    {
+      "transactionId": "08E025E87F660398890126436229B2",
+      "bookingDate": "2025-01-31",
+      "valueDate": "2025-01-31",
+      "bookingDateTime": "2025-01-31T00:00:00+00:00",
+      "valueDateTime": "2025-01-31T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-1.80",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "GOVT DUTY ATM/POS0294",
+      "proprietaryBankTransactionCode": "418",
+      "internalTransactionId": "8ad299c91fbed85d4fb2c0edd8b307b5"
+    },
+    {
+      "transactionId": "CAFFF246AA67281774951EE2BB1C1F",
+      "bookingDate": "2025-03-11",
+      "valueDate": "2025-03-11",
+      "bookingDateTime": "2025-03-11T00:00:00+00:00",
+      "valueDateTime": "2025-03-11T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-0.22",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "NEPOSCHGGBP 000000.22",
+      "proprietaryBankTransactionCode": "407",
+      "internalTransactionId": "5a1678e8fc36da4d1fdd2efbc5773bf5"
+    },
+    {
+      "transactionId": "340E719C7C6637848046FAC3FBE5EA",
+      "bookingDate": "2025-02-11",
+      "valueDate": "2025-02-11",
+      "bookingDateTime": "2025-02-11T00:00:00+00:00",
+      "valueDateTime": "2025-02-11T00:00:00+00:00",
+      "transactionAmount": {
+        "amount": "-0.22",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "NEPOSCHGGBP 000000.22",
+      "proprietaryBankTransactionCode": "407",
+      "internalTransactionId": "0b74ca2eb667fa12e92788a477147ec6"
+    },
+    {
+      "transactionId": "TEACHING_COUNCIL_PAYROLL_2025-04-24",
+      "bookingDate": "2025-04-24",
+      "valueDate": "2025-04-24",
+      "transactionAmount": {
+        "amount": "1210.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "TEACHING PAYROLL",
+      "proprietaryBankTransactionCode": "722"
+    },
+    {
+      "transactionId": "TEACHING_COUNCIL_PAYROLL_2025-04-10",
+      "bookingDate": "2025-04-10",
+      "valueDate": "2025-04-10",
+      "transactionAmount": {
+        "amount": "1210.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "TEACHING PAYROLL",
+      "proprietaryBankTransactionCode": "723"
+    },
+    {
+      "transactionId": "TEACHING_COUNCIL_PAYROLL_2025-03-27",
+      "bookingDate": "2025-03-27",
+      "valueDate": "2025-03-27",
+      "transactionAmount": {
+        "amount": "1210.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "TEACHING PAYROLL",
+      "proprietaryBankTransactionCode": "724"
+    },
+    {
+      "transactionId": "TEACHING_COUNCIL_PAYROLL_2025-03-13",
+      "bookingDate": "2025-03-13",
+      "valueDate": "2025-03-13",
+      "transactionAmount": {
+        "amount": "1210.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "TEACHING PAYROLL",
+      "proprietaryBankTransactionCode": "725"
+    },
+    {
+      "transactionId": "TEACHING_COUNCIL_PAYROLL_2025-02-27",
+      "bookingDate": "2025-02-27",
+      "valueDate": "2025-02-27",
+      "transactionAmount": {
+        "amount": "1210.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "TEACHING PAYROLL",
+      "proprietaryBankTransactionCode": "726"
+    },
+    {
+      "transactionId": "TEACHING_COUNCIL_PAYROLL_2025-02-13",
+      "bookingDate": "2025-02-13",
+      "valueDate": "2025-02-13",
+      "transactionAmount": {
+        "amount": "1210.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "TEACHING PAYROLL",
+      "proprietaryBankTransactionCode": "727"
+    },
+    {
+      "transactionId": "TEACHING_COUNCIL_PAYROLL_2025-01-30",
+      "bookingDate": "2025-01-30",
+      "valueDate": "2025-01-30",
+      "transactionAmount": {
+        "amount": "1210.00",
+        "currency": "EUR"
+      },
+      "remittanceInformationUnstructured": "TEACHING PAYROLL",
+      "proprietaryBankTransactionCode": "728"
+    }
+  ]
+}
