@@ -68,15 +68,38 @@ function App() {
   const runDetection = async (txA: Transaction[], txB?: Transaction[]) => {
     if (!apiRef.current) return;
     
+    console.log('[runDetection] Starting detection for:', { 
+      txALength: txA.length, 
+      txBLength: txB?.length,
+      mode: txB ? 'joint' : 'single'
+    });
+    
     const resA = await apiRef.current.analyzeTransactions(txA);
+    console.log('[runDetection] Results A:', { 
+      salaries: resA.salaries?.length, 
+      recurring: resA.recurring?.length,
+      sampleSalary: resA.salaries?.[0]
+    });
     
     // For joint mode, also analyze user B's transactions
     let resB;
     if (txB) {
       resB = await apiRef.current.analyzeTransactions(txB);
+      console.log('[runDetection] Results B:', { 
+        salaries: resB.salaries?.length, 
+        recurring: resB.recurring?.length,
+        sampleSalary: resB.salaries?.[0]
+      });
     }
     
-    setDetected(resA);
+    // Store both A and B results for the UI to access
+    setDetected({ 
+      salaries: resA.salaries || [], 
+      recurring: resA.recurring || [],
+      // Add B's data as separate properties
+      salariesB: resB?.salaries || [],
+      recurringB: resB?.recurring || []
+    } as any);
 
     // 1) Salary for user A
     const cA = resA.salaries?.[0];

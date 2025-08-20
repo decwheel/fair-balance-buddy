@@ -97,7 +97,9 @@ const [state, setState] = useState<AppState>({
   // 🔌 NEW: read worker detections (salary + recurring) from the store
   const { detected, inputs } = usePlanStore();
   const topSalary: SalaryCandidate | undefined = detected?.salaries?.[0];
+  const topSalaryB: SalaryCandidate | undefined = (detected as any)?.salariesB?.[0];
   const recurringFromStore: RecurringItem[] = detected?.recurring ?? [];
+  const recurringFromStoreB: RecurringItem[] = (detected as any)?.recurringB ?? [];
 
 
   // Load mock bank data
@@ -139,15 +141,24 @@ setState(prev => ({
 
   // 🔁 NEW: whenever worker/store detections change, hydrate the page state from them
   useEffect(() => {
-    if (!detected || !recurringFromStore.length) return;
+    if (!detected || (!recurringFromStore.length && !recurringFromStoreB.length)) return;
+    
+    console.log('[Index] Processing detected data:', {
+      recurringA: recurringFromStore.length,
+      recurringB: recurringFromStoreB.length,
+      mode: state.mode
+    });
+    
     // Map worker-recurring → UI Bill[] and collect display metadata (freq, last, dueDay)
     const meta: RecurringMeta = {};
-    const importedFromDetected: Bill[] = recurringFromStore.map((r, i) => {
+    
+    // Process User A's bills
+    const importedFromDetectedA: Bill[] = recurringFromStore.map((r, i) => {
       const lastDate =
         (r.sampleDates && r.sampleDates.length
           ? [...r.sampleDates].sort().slice(-1)[0]
           : '') || '';
-      const id = `det-${i}`;
+      const id = `det-a-${i}`;
       meta[id] = {
         freq: r.freq,
         last: lastDate,
@@ -160,11 +171,37 @@ setState(prev => ({
         amount: r.amount,
         issueDate: lastDate,
         dueDate: lastDate,
-        // Tag rows coming from the worker so the table can select only these.
         source: 'detected' as any,
         movable: false,
       };
     });
+
+    // Process User B's bills (for joint mode)
+    const importedFromDetectedB: Bill[] = recurringFromStoreB.map((r, i) => {
+      const lastDate =
+        (r.sampleDates && r.sampleDates.length
+          ? [...r.sampleDates].sort().slice(-1)[0]
+          : '') || '';
+      const id = `det-b-${i}`;
+      meta[id] = {
+        freq: r.freq,
+        last: lastDate,
+        dueDay: (r as any).dueDay,
+        dayOfWeek: (r as any).dayOfWeek,
+      };
+      return {
+        id,
+        name: `[B] ${r.description}`, // Prefix with [B] to distinguish
+        amount: r.amount,
+        issueDate: lastDate,
+        dueDate: lastDate,
+        source: 'detected' as any,
+        movable: false,
+      };
+    });
+
+    const allImportedBills = [...importedFromDetectedA, ...importedFromDetectedB];
+    
     setRecurringMeta(meta);
     setState(prev => ({
         ...prev,
@@ -173,9 +210,9 @@ setState(prev => ({
           ...prev.bills.filter(
             b => (b as any).source !== 'detected' && !String(b.id || '').startsWith('det-')
           ),
-          ...importedFromDetected,
+          ...allImportedBills,
         ],
-        includedBillIds: importedFromDetected.map(b => b.id!),
+        includedBillIds: allImportedBills.map(b => b.id!),
       }));
     // Re-run when worker detections are present OR when bank data loads
     }, [detected, state.userA.transactions.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -615,7 +652,7 @@ setState(prev => ({
                     monthlyFromInputs ??
                     (avgOcc && pay?.frequency ? avgOcc * (factor[pay.frequency] ?? 1) : undefined);
                   const confirmed = who === 'A' ? state.wageConfirmedA : (state.wageConfirmedB ?? false);
-                  const lastSeenFromStore = topSalary?.firstSeen;
+                  const lastSeenFromStore = who === 'A' ? topSalary?.firstSeen : topSalaryB?.firstSeen;
 
                   return (
                     <div className="space-y-3">
