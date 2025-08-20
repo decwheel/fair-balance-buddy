@@ -606,8 +606,9 @@ setState(prev => ({
                   } as const;
                   // 🧠 Prefer worker/store salary if available
                   // ✅ Use inputs (already coerced to monthly & per-occurrence amount)
-                  const monthlyFromInputs = inputs?.a?.netMonthly;
-                  const freqFromInputs = inputs?.a?.freq ? String(inputs.a.freq).toUpperCase() : undefined;
+                  const userInputs = who === 'A' ? inputs?.a : inputs?.b;
+                  const monthlyFromInputs = userInputs?.netMonthly;
+                  const freqFromInputs = userInputs?.freq ? String(userInputs.freq).toUpperCase() : undefined;
 
                   // Fallback to the old local average if worker hasn’t populated yet
                   const monthly =
