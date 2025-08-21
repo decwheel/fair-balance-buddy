@@ -593,31 +593,11 @@ setState(prev => ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Person A</p>
-                  {state.userA.paySchedule && (
-                    <p className="text-sm text-muted-foreground">
-                      Next pay date: {(() => {
-                        const dates = calculatePayDates(state.userA.paySchedule!.frequency, state.userA.paySchedule!.anchorDate, 3);
-                        const today = new Date().toISOString().split('T')[0];
-                        const next = dates.find(d => d >= today) ?? dates[dates.length - 1];
-                        return next;
-                      })()}
-                    </p>
-                  )}
                   <Badge variant="secondary">{state.userA.transactions.length} transactions</Badge>
                 </div>
                 {state.mode === 'joint' && state.userB && (
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Person B</p>
-                    {state.userB.paySchedule && (
-                      <p className="text-sm text-muted-foreground">
-                        Next pay date: {(() => {
-                          const dates = calculatePayDates(state.userB!.paySchedule!.frequency, state.userB!.paySchedule!.anchorDate, 3);
-                          const today = new Date().toISOString().split('T')[0];
-                          const next = dates.find(d => d >= today) ?? dates[dates.length - 1];
-                          return next;
-                        })()}
-                      </p>
-                    )}
                     <Badge variant="secondary">{state.userB.transactions.length} transactions</Badge>
                   </div>
                 )}
@@ -663,6 +643,16 @@ setState(prev => ({
                           Detected: {freqFromInputs ?? (pay ? pay.frequency : 'Unknown')}
                           {' '}• Avg per month: {monthly ? formatCurrency(monthly) : '—'}
                           {lastSeenFromStore ? <> • Last seen: {lastSeenFromStore}</> : null}
+                          {pay && (
+                            <>
+                              {' '}• Next pay: {(() => {
+                                const dates = calculatePayDates(pay.frequency, pay.anchorDate, 3);
+                                const today = new Date().toISOString().split('T')[0];
+                                const next = dates.find(d => d >= today) ?? dates[dates.length - 1];
+                                return next;
+                              })()}
+                            </>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <Checkbox

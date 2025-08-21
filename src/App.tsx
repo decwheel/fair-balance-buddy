@@ -234,44 +234,6 @@ function App() {
           </Routes>
         </BrowserRouter>
 
-        {/* Temporary worker test UI (safe to remove later) */}
-        <div className="fixed bottom-4 right-4 flex flex-col items-end gap-2">
-          <button
-            disabled={!ready}
-            onClick={recalc}
-            className="px-3 py-2 rounded-md border bg-white dark:bg-neutral-900 text-sm"
-            title={!ready ? "Worker not ready yet" : "Run simulation in worker"}
-          >
-            Recalculate plan (worker)
-          </button>
-          <button
-            disabled={!ready}
-            onClick={demoDetect}
-            className="px-3 py-2 rounded-md border bg-white dark:bg-neutral-900 text-sm"
-            title={!ready ? "Worker not ready yet" : "Run recurring detection demo"}
-          >
-            Detect recurring (demo)
-          </button>
-          <button
-            disabled={!ready}
-            onClick={analyzeMockA}
-            className="px-3 py-2 rounded-md border bg-white dark:bg-neutral-900 text-sm"
-          >
-            Analyze mock A (single)
-          </button>
-          <button
-            disabled={!ready}
-            onClick={switchToJointMode}
-            className="px-3 py-2 rounded-md border bg-white dark:bg-neutral-900 text-sm"
-          >
-            Switch to Joint Mode
-          </button>
-          {result && (
-            <div className="text-xs opacity-75 bg-white/70 dark:bg-black/40 backdrop-blur px-2 py-1 rounded">
-              Min: €{result.minBalance.toFixed(2)} · End: €{result.endBalance.toFixed(2)}
-            </div>
-          )}
-        </div>
       </TooltipProvider>
     </QueryClientProvider>
   );
