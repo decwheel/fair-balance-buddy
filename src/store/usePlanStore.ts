@@ -7,11 +7,21 @@ type State = {
   inputs: Partial<PlanInputs>;
   result?: SimResult;
   transactions?: Transaction[];
-  detected?: { salaries: SalaryCandidate[]; recurring: RecurringItem[] };
+  detected?: { 
+    salaries: SalaryCandidate[]; 
+    recurring: RecurringItem[];
+    salariesB?: SalaryCandidate[];
+    recurringB?: RecurringItem[];
+  };
   setInputs: (patch: Partial<PlanInputs>) => void;
   setResult: (r?: SimResult) => void;
    setTransactions: (tx?: Transaction[]) => void;
-   setDetected: (d?: { salaries: SalaryCandidate[]; recurring: RecurringItem[] }) => void;
+   setDetected: (d?: { 
+     salaries: SalaryCandidate[]; 
+     recurring: RecurringItem[];
+     salariesB?: SalaryCandidate[];
+     recurringB?: RecurringItem[];
+   }) => void;
 };
 
 export const usePlanStore = create<State>((set) => ({

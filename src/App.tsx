@@ -99,7 +99,14 @@ function App() {
       // Add B's data as separate properties
       salariesB: resB?.salaries || [],
       recurringB: resB?.recurring || []
-    } as any);
+    });
+    
+    console.log('[runDetection] Stored in zustand:', {
+      salariesA: resA.salaries?.length,
+      recurringA: resA.recurring?.length,  
+      salariesB: resB?.salaries?.length,
+      recurringB: resB?.recurring?.length
+    });
 
     // 1) Salary for user A
     const cA = resA.salaries?.[0];

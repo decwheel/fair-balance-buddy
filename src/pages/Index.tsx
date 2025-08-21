@@ -146,7 +146,10 @@ setState(prev => ({
     console.log('[Index] Processing detected data:', {
       recurringA: recurringFromStore.length,
       recurringB: recurringFromStoreB.length,
-      mode: state.mode
+      mode: state.mode,
+      detected: detected,
+      recurringFromStore: recurringFromStore,
+      recurringFromStoreB: recurringFromStoreB
     });
     
     // Map worker-recurring → UI Bill[] and collect display metadata (freq, last, dueDay)
@@ -201,6 +204,14 @@ setState(prev => ({
     });
 
     const allImportedBills = [...importedFromDetectedA, ...importedFromDetectedB];
+    
+    console.log('[Index] Final bill processing:', {
+      importedFromDetectedA: importedFromDetectedA.length,
+      importedFromDetectedB: importedFromDetectedB.length,
+      allImportedBills: allImportedBills.length,
+      sampleA: importedFromDetectedA[0]?.name,
+      sampleB: importedFromDetectedB[0]?.name
+    });
     
     setRecurringMeta(meta);
     setState(prev => ({
