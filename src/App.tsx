@@ -71,24 +71,30 @@ function App() {
     console.log('[runDetection] Starting detection for:', { 
       txALength: txA.length, 
       txBLength: txB?.length,
-      mode: txB ? 'joint' : 'single'
+      mode: txB ? 'joint' : 'single',
+      sampleTxA: txA.slice(0, 3).map(t => ({ desc: t.description, amount: t.amount, date: t.dateISO })),
+      sampleTxB: txB?.slice(0, 3).map(t => ({ desc: t.description, amount: t.amount, date: t.dateISO }))
     });
     
     const resA = await apiRef.current.analyzeTransactions(txA);
     console.log('[runDetection] Results A:', { 
       salaries: resA.salaries?.length, 
       recurring: resA.recurring?.length,
-      sampleSalary: resA.salaries?.[0]
+      sampleSalary: resA.salaries?.[0],
+      sampleRecurring: resA.recurring?.[0]
     });
     
     // For joint mode, also analyze user B's transactions
     let resB;
     if (txB) {
+      console.log('[runDetection] Analyzing B transactions...');
       resB = await apiRef.current.analyzeTransactions(txB);
       console.log('[runDetection] Results B:', { 
         salaries: resB.salaries?.length, 
         recurring: resB.recurring?.length,
-        sampleSalary: resB.salaries?.[0]
+        sampleSalary: resB.salaries?.[0],
+        sampleRecurring: resB.recurring?.[0],
+        allRecurring: resB.recurring
       });
     }
     
