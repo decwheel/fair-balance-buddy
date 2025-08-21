@@ -184,6 +184,15 @@ function App() {
     await runDetection(txA, txB);
   };
 
+  // Expose functions to Index.tsx via window global
+  useEffect(() => {
+    if (ready && apiRef.current) {
+      (window as any).__workerAPI = apiRef.current;
+      (window as any).__switchToJointMode = switchToJointMode;
+      (window as any).__runDetection = runDetection;
+    }
+  }, [ready]);
+
   async function recalc() {
     if (!apiRef.current) return;
     // Minimal defaults so the button works immediately

@@ -133,6 +133,21 @@ setState(prev => ({
   isLoading: false,
   step: 'bank'
 }));
+
+      // 🔌 NEW: Trigger worker detection system
+      const switchToJointMode = (window as any).__switchToJointMode;
+      const runDetection = (window as any).__runDetection;
+      
+      if (mode === 'joint' && switchToJointMode) {
+        console.log('[loadBankData] Triggering joint mode detection...');
+        await switchToJointMode();
+      } else if (mode === 'single' && runDetection) {
+        console.log('[loadBankData] Triggering single mode detection...');
+        const { mapBoiToTransactions } = await import('../lib/txMap');
+        const mockA = await import('../fixtures/mock-a-boi-transactions.json');
+        const txA = mapBoiToTransactions(mockA as any);
+        await runDetection(txA);
+      }
     } catch (error) {
       console.error('Failed to load bank data:', error);
       setState(prev => ({ ...prev, isLoading: false }));
