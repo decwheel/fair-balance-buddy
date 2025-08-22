@@ -64,20 +64,22 @@ function analyseDatePattern(dateStrings: string[] = []) {
   const total = gaps.length;
   const cnt = (lo:number,hi:number) => gaps.filter(g => g>=lo && g<=hi).length;
   
-  // Debug logging for User B salary detection
-  if (dateStrings.some(d => d.includes('2025')) && gaps.some(g => g >= 10 && g <= 18)) {
-    console.log('[analyseDatePattern] Debug for potential fortnightly pattern:', {
-      dateStrings: dateStrings.slice(0, 5),
-      gaps: gaps.slice(0, 5),
+  // Debug logging for salary detection
+  if (dateStrings.some(d => d.includes('2025')) && (gaps.some(g => g >= 10 && g <= 18) || gaps.some(g => g === 14))) {
+    console.log('[analyseDatePattern] Debug for salary pattern:', {
+      dateStrings: dateStrings.slice(0, 8),
+      gaps: gaps.slice(0, 8),
       weekly: cnt(5,9),
       fortnightly: cnt(12,18),
-      monthly: cnt(26,35)
+      monthly: cnt(26,35),
+      exact14days: gaps.filter(g => g === 14).length,
+      total: gaps.length
     });
   }
   
   const buckets = [
     { n: "weekly",      c: cnt(5,9)   },
-    { n: "fortnightly", c: cnt(12,18) },
+    { n: "fortnightly", c: cnt(13,15) }, // Tighter range for fortnightly (14 days ±1)
     { n: "monthly",     c: cnt(26,35) },
     { n: "yearly",      c: cnt(350,380) },
   ];

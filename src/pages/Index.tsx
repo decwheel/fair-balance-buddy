@@ -735,7 +735,7 @@ setState(prev => ({
                                     />
                                   </TableCell>
                                   <TableCell className="text-sm">{b.dueDate}</TableCell>
-                                   <TableCell className="text-sm">
+                                   <TableCell className="text-sm p-1">
                                      <Input
                                        value={b.name}
                                        onChange={(e) => {
@@ -746,13 +746,13 @@ setState(prev => ({
                                            )
                                          }));
                                        }}
-                                       className="h-8 text-sm"
+                                       className="h-10 text-sm font-medium bg-background border-input focus:border-primary min-w-0"
                                      />
                                    </TableCell>
                                    <TableCell className="text-sm">
                                      {formatPattern(recurringMeta[b.id!])}
                                    </TableCell>
-                                   <TableCell className="text-right">
+                                   <TableCell className="text-right p-1">
                                      <Input
                                        type="number"
                                        step="0.01"
@@ -766,7 +766,7 @@ setState(prev => ({
                                            )
                                          }));
                                        }}
-                                       className="h-8 text-sm text-right"
+                                       className="h-10 text-sm text-right font-medium bg-background border-input focus:border-primary min-w-[80px]"
                                      />
                                    </TableCell>
                                 </TableRow>
