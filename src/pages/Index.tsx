@@ -735,7 +735,7 @@ setState(prev => ({
                                     />
                                   </TableCell>
                                   <TableCell className="text-sm">{b.dueDate}</TableCell>
-                                   <TableCell className="text-sm p-1">
+                                   <TableCell className="text-sm p-2">
                                      <Input
                                        value={b.name}
                                        onChange={(e) => {
@@ -746,13 +746,13 @@ setState(prev => ({
                                            )
                                          }));
                                        }}
-                                       className="h-10 text-sm font-medium bg-background border-input focus:border-primary min-w-0"
+                                       className="h-12 text-base font-medium bg-card border-2 border-input focus:border-primary focus:ring-2 focus:ring-primary/20 rounded-md px-3 min-w-0 shadow-sm"
                                      />
                                    </TableCell>
                                    <TableCell className="text-sm">
                                      {formatPattern(recurringMeta[b.id!])}
                                    </TableCell>
-                                   <TableCell className="text-right p-1">
+                                   <TableCell className="text-right p-2">
                                      <Input
                                        type="number"
                                        step="0.01"
@@ -766,7 +766,7 @@ setState(prev => ({
                                            )
                                          }));
                                        }}
-                                       className="h-10 text-sm text-right font-medium bg-background border-input focus:border-primary min-w-[80px]"
+                                       className="h-12 text-base text-right font-medium bg-card border-2 border-input focus:border-primary focus:ring-2 focus:ring-primary/20 rounded-md px-3 min-w-[100px] shadow-sm"
                                      />
                                    </TableCell>
                                 </TableRow>

@@ -84,6 +84,12 @@ function analyseDatePattern(dateStrings: string[] = []) {
     { n: "yearly",      c: cnt(350,380) },
   ];
   
+  // Special case: check for exact 14-day pattern first (fortnightly salaries)
+  const exact14Count = gaps.filter(g => g === 14).length;
+  if (exact14Count >= 2 && exact14Count / total >= 0.6) {
+    return { frequency: "fortnightly" as const, due: dates[dates.length-1] };
+  }
+
   // First try: majority (50%) in one bucket
   let frequency = (buckets.find(b => b.c/total >= 0.5)?.n ?? "") as
                   "" | "weekly" | "fortnightly" | "monthly" | "yearly";
