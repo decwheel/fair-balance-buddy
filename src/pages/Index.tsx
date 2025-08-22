@@ -746,7 +746,7 @@ setState(prev => ({
                                            )
                                          }));
                                        }}
-                                       className="h-12 text-base font-medium bg-card border-2 border-input focus:border-primary focus:ring-2 focus:ring-primary/20 rounded-md px-3 min-w-0 shadow-sm"
+                                       className="h-12 text-base font-medium bg-card border-2 border-input focus:border-primary focus:ring-2 focus:ring-primary/20 rounded-md px-3 w-full min-w-[140px] max-w-[220px] shadow-sm"
                                      />
                                    </TableCell>
                                    <TableCell className="text-sm">

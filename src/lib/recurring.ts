@@ -86,7 +86,8 @@ function analyseDatePattern(dateStrings: string[] = []) {
   
   // Special case: check for exact 14-day pattern first (fortnightly salaries)
   const exact14Count = gaps.filter(g => g === 14).length;
-  if (exact14Count >= 2 && exact14Count / total >= 0.6) {
+  if (exact14Count >= 2 && exact14Count / total >= 0.5) {
+    console.log('[analyseDatePattern] Detected exact fortnightly pattern:', { exact14Count, total, ratio: exact14Count/total });
     return { frequency: "fortnightly" as const, due: dates[dates.length-1] };
   }
 
