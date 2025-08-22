@@ -63,18 +63,36 @@ function analyseDatePattern(dateStrings: string[] = []) {
   const gaps  = dates.slice(1).map((d,i) => differenceInDays(d, dates[i]));
   const total = gaps.length;
   const cnt = (lo:number,hi:number) => gaps.filter(g => g>=lo && g<=hi).length;
+  
+  // Debug logging for User B salary detection
+  if (dateStrings.some(d => d.includes('2025')) && gaps.some(g => g >= 10 && g <= 18)) {
+    console.log('[analyseDatePattern] Debug for potential fortnightly pattern:', {
+      dateStrings: dateStrings.slice(0, 5),
+      gaps: gaps.slice(0, 5),
+      weekly: cnt(5,9),
+      fortnightly: cnt(12,18),
+      monthly: cnt(26,35)
+    });
+  }
+  
   const buckets = [
     { n: "weekly",      c: cnt(5,9)   },
     { n: "fortnightly", c: cnt(12,18) },
     { n: "monthly",     c: cnt(26,35) },
     { n: "yearly",      c: cnt(350,380) },
   ];
+  
+  // First try: majority (50%) in one bucket
   let frequency = (buckets.find(b => b.c/total >= 0.5)?.n ?? "") as
                   "" | "weekly" | "fortnightly" | "monthly" | "yearly";
+  
+  // Second try: highest count with at least 40% (lowered threshold for fortnightly)
   if (!frequency) {
     const dom = [...buckets].sort((a,b)=>b.c-a.c)[0];
     if (dom.c >= 2 && dom.c/total >= 0.4) frequency = dom.n as any;
   }
+  
+  // Third try: median gap fallback
   if (!frequency) {
     const med = [...gaps].sort((a,b)=>a-b)[Math.floor(total/2)];
     if      (med>=5  && med<=9)   frequency="weekly";
@@ -82,11 +100,14 @@ function analyseDatePattern(dateStrings: string[] = []) {
     else if (med>=26 && med<=35)  frequency="monthly";
     else if (med>=350&& med<=380) frequency="yearly";
   }
+  
+  // Fourth try: two-item special case
   if (!frequency && dates.length === 2) {
     const gap = gaps[0];
     if (within(gap,30,5) && within(dates[0].getDate(), dates[1].getDate(), 3)) frequency="monthly";
     else if (within(gap,14,4) && dates[0].getDay() === dates[1].getDay())       frequency="fortnightly";
   }
+  
   return { frequency, due: dates[dates.length-1] };
 }
 

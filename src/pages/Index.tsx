@@ -735,11 +735,40 @@ setState(prev => ({
                                     />
                                   </TableCell>
                                   <TableCell className="text-sm">{b.dueDate}</TableCell>
-                                  <TableCell className="text-sm">{b.name}</TableCell>
-                                  <TableCell className="text-sm">
-                                    {formatPattern(recurringMeta[b.id!])}
-                                  </TableCell>
-                                  <TableCell className="text-right font-medium">€{b.amount.toFixed(2)}</TableCell>
+                                   <TableCell className="text-sm">
+                                     <Input
+                                       value={b.name}
+                                       onChange={(e) => {
+                                         setState(prev => ({
+                                           ...prev,
+                                           bills: prev.bills.map(bill => 
+                                             bill.id === b.id ? { ...bill, name: e.target.value } : bill
+                                           )
+                                         }));
+                                       }}
+                                       className="h-8 text-sm"
+                                     />
+                                   </TableCell>
+                                   <TableCell className="text-sm">
+                                     {formatPattern(recurringMeta[b.id!])}
+                                   </TableCell>
+                                   <TableCell className="text-right">
+                                     <Input
+                                       type="number"
+                                       step="0.01"
+                                       value={b.amount.toFixed(2)}
+                                       onChange={(e) => {
+                                         const newAmount = parseFloat(e.target.value) || 0;
+                                         setState(prev => ({
+                                           ...prev,
+                                           bills: prev.bills.map(bill => 
+                                             bill.id === b.id ? { ...bill, amount: newAmount } : bill
+                                           )
+                                         }));
+                                       }}
+                                       className="h-8 text-sm text-right"
+                                     />
+                                   </TableCell>
                                 </TableRow>
                               ))}
                           </TableBody>
