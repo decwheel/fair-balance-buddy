@@ -73,21 +73,28 @@ function analyseDatePattern(dateStrings: string[] = []) {
       fortnightly: cnt(12,18),
       monthly: cnt(26,35),
       exact14days: gaps.filter(g => g === 14).length,
-      total: gaps.length
+      total: gaps.length,
+      description: dateStrings[0] ? 'teaching payroll check' : 'unknown'
     });
+  }
+  
+  // **HIGHEST PRIORITY**: Exact 14-day patterns (fortnightly salaries)
+  const exact14Count = gaps.filter(g => g === 14).length;
+  if (exact14Count >= 3 && exact14Count / total >= 0.6) {
+    console.log('[analyseDatePattern] Detected exact fortnightly salary pattern (priority):', { exact14Count, total, ratio: exact14Count/total });
+    return { frequency: "fortnightly" as const, due: dates[dates.length-1] };
   }
   
   const buckets = [
     { n: "weekly",      c: cnt(5,9)   },
-    { n: "fortnightly", c: cnt(13,15) }, // Tighter range for fortnightly (14 days ±1)
+    { n: "fortnightly", c: cnt(12,18) }, // Broader range for fortnightly detection
     { n: "monthly",     c: cnt(26,35) },
     { n: "yearly",      c: cnt(350,380) },
   ];
   
-  // Special case: check for exact 14-day pattern first (fortnightly salaries)
-  const exact14Count = gaps.filter(g => g === 14).length;
-  if (exact14Count >= 2 && exact14Count / total >= 0.5) {
-    console.log('[analyseDatePattern] Detected exact fortnightly pattern:', { exact14Count, total, ratio: exact14Count/total });
+  // Secondary exact 14-day check with lower threshold 
+  if (exact14Count >= 2 && exact14Count / total >= 0.4) {
+    console.log('[analyseDatePattern] Detected fortnightly pattern (secondary):', { exact14Count, total, ratio: exact14Count/total });
     return { frequency: "fortnightly" as const, due: dates[dates.length-1] };
   }
 
