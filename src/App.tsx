@@ -73,7 +73,10 @@ function App() {
       txBLength: txB?.length,
       mode: txB ? 'joint' : 'single',
       sampleTxA: txA.slice(0, 3).map(t => ({ desc: t.description, amount: t.amount, date: t.dateISO })),
-      sampleTxB: txB?.slice(0, 3).map(t => ({ desc: t.description, amount: t.amount, date: t.dateISO }))
+      sampleTxB: txB?.slice(0, 3).map(t => ({ desc: t.description, amount: t.amount, date: t.dateISO })),
+      txBExists: !!txB,
+      txBType: typeof txB,
+      txBIsArray: Array.isArray(txB)
     });
     
     const resA = await apiRef.current.analyzeTransactions(txA);
@@ -121,7 +124,7 @@ function App() {
     if (cA) {
       inputsUpdate.a = {
         netMonthly: cA.amount,
-        freq: "monthly",
+        freq: cA.freq, // Use detected frequency instead of hardcoding "monthly"
         firstPayISO: cA.firstSeen,
       };
     }
@@ -132,7 +135,7 @@ function App() {
       if (cB) {
         inputsUpdate.b = {
           netMonthly: cB.amount,
-          freq: "monthly", 
+          freq: cB.freq, // Use detected frequency instead of hardcoding "monthly"
           firstPayISO: cB.firstSeen,
         };
       }
