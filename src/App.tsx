@@ -164,20 +164,24 @@ function App() {
     await recalc();
   };
 
-  // AUTO-LOAD: start with single mode using mock A
+  // AUTO-LOAD: start with single mode using mock A (only if not manually triggered)
+  const [hasManualSelection, setHasManualSelection] = useState(false);
+  
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || hasManualSelection) return;
     const txA = mapBoiToTransactions(mockA as any);
     setTransactions(txA);
     runDetection(txA).catch(err => {
       console.error("[auto detect] failed:", err);
       toast.error("Auto-detect failed (see console)");
     });
-  }, [ready]);
+  }, [ready, hasManualSelection]);
 
   // Function to switch to joint mode
   const switchToJointMode = async () => {
     if (!apiRef.current) return;
+    setHasManualSelection(true); // Prevent auto-load from interfering
+    console.log('[switchToJointMode] Loading joint mode with User B data...');
     const txA = mapBoiToTransactions(mockA as any);
     const txB = mapBoiToTransactions(mockB as any);
     setTransactions(txA); // Store A's transactions as primary
@@ -189,9 +193,12 @@ function App() {
     if (ready && apiRef.current) {
       (window as any).__workerAPI = apiRef.current;
       (window as any).__switchToJointMode = switchToJointMode;
-      (window as any).__runDetection = runDetection;
+      (window as any).__runDetection = (txA: Transaction[], txB?: Transaction[]) => {
+        setHasManualSelection(true); // Mark as manual selection
+        return runDetection(txA, txB);
+      };
     }
-  }, [ready]);
+  }, [ready, switchToJointMode]);
 
   async function recalc() {
     if (!apiRef.current) return;
