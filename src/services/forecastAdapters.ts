@@ -1,4 +1,4 @@
-import { calculatePayDates, nextBusinessDay, roundCurrency } from "@/utils/dateUtils";
+import { calculatePayDates, nextBusinessDay } from "@/utils/dateUtils";
 import { calculateForecast, Bill as ForecastBill } from "@/utils/forecast";
 import { calculateForecastFromMany } from "@/utils/forecastMany";
 
@@ -107,47 +107,36 @@ export function runJoint(
 }
 
 // NEVER-BELOW-ZERO DEPOSIT SEARCH
-const tol = 0.50; // euros
-const maxIter = 40;
-const loFactor = 0.5;
-const hiFactor = 3.0;
+// Copied from decwheel/fair-split project
 
 export function findDepositSingle(
   startDate: ISODate,
   pay: PaySchedule,
   bills: Bill[],
-  baseline: number
+  _baseline: number
 ): number {
-  let f_lo = loFactor;
-  let f_hi = hiFactor;
-  
-  // Expand upper bound if needed
-  for (let i = 0; i < 5; i++) {
-    const dep = baseline * f_hi;
-    const res = runSingle(dep, startDate, pay, bills, { months: 12, buffer: 0 });
-    if (res.minBalance >= 0) break;
-    f_hi *= 2;
-  }
-  
-  let best = { deposit: baseline * f_hi, minBalance: Infinity };
-  
+  let low = 0;
+  let high = 20000;
+  let bestDeposit = high;
+
+  // Check if zero deposit works
+  const testZero = runSingle(0, startDate, pay, bills, { months: 12, buffer: 0 });
+  if (testZero.minBalance >= 0) return 0;
+
   // Binary search
-  for (let it = 0; it < maxIter; it++) {
-    const f_mid = 0.5 * (f_lo + f_hi);
-    const dep = baseline * f_mid;
-    const res = runSingle(dep, startDate, pay, bills, { months: 12, buffer: 0 });
-    
-    if (res.minBalance >= 0) {
-      best = { deposit: dep, minBalance: res.minBalance };
-      f_hi = f_mid;
+  for (let iterations = 0; iterations < 50 && high - low > 0.01; iterations++) {
+    const mid = (low + high) / 2;
+    const result = runSingle(mid, startDate, pay, bills, { months: 12, buffer: 0 });
+
+    if (result.minBalance >= 0) {
+      bestDeposit = mid;
+      high = mid;
     } else {
-      f_lo = f_mid;
+      low = mid;
     }
-    
-    if ((f_hi - f_lo) * baseline < tol) break;
   }
-  
-  return roundCurrency(best.deposit);
+
+  return Math.ceil(bestDeposit * 1.02);
 }
 
 export function findDepositJoint(
@@ -156,49 +145,40 @@ export function findDepositJoint(
   payB: PaySchedule,
   bills: Bill[],
   fairnessRatioA: number,
-  baseline: number
+  _baseline: number
 ): { depositA: number; depositB: number } {
-  let f_lo = loFactor;
-  let f_hi = hiFactor;
-  
-  // Expand upper bound if needed
-  for (let i = 0; i < 5; i++) {
-    const jointDep = baseline * f_hi;
-    const depA = jointDep * fairnessRatioA;
-    const depB = jointDep * (1 - fairnessRatioA);
-    const res = runJoint(depA, depB, startDate, payA, payB, bills, { 
-      months: 12, 
-      fairnessRatioA 
-    });
-    if (res.minBalance >= 0) break;
-    f_hi *= 2;
-  }
-  
-  let best = { jointDeposit: baseline * f_hi, minBalance: Infinity };
-  
+  let totalLow = 0;
+  let totalHigh = 30000;
+  let bestResult = { depositA: totalHigh, depositB: totalHigh };
+
+  // Check if zero deposits work
+  const testZero = runJoint(0, 0, startDate, payA, payB, bills, {
+    months: 12,
+    fairnessRatioA
+  });
+  if (testZero.minBalance >= 0) return { depositA: 0, depositB: 0 };
+
   // Binary search
-  for (let it = 0; it < maxIter; it++) {
-    const f_mid = 0.5 * (f_lo + f_hi);
-    const jointDep = baseline * f_mid;
-    const depA = jointDep * fairnessRatioA;
-    const depB = jointDep * (1 - fairnessRatioA);
-    const res = runJoint(depA, depB, startDate, payA, payB, bills, { 
-      months: 12, 
-      fairnessRatioA 
+  for (let iterations = 0; iterations < 50 && totalHigh - totalLow > 0.01; iterations++) {
+    const totalMid = (totalLow + totalHigh) / 2;
+    const depositA = totalMid * fairnessRatioA;
+    const depositB = totalMid * (1 - fairnessRatioA);
+
+    const result = runJoint(depositA, depositB, startDate, payA, payB, bills, {
+      months: 12,
+      fairnessRatioA
     });
-    
-    if (res.minBalance >= 0) {
-      best = { jointDeposit: jointDep, minBalance: res.minBalance };
-      f_hi = f_mid;
+
+    if (result.minBalance >= 0) {
+      bestResult = { depositA, depositB };
+      totalHigh = totalMid;
     } else {
-      f_lo = f_mid;
+      totalLow = totalMid;
     }
-    
-    if ((f_hi - f_lo) * baseline < tol) break;
   }
-  
+
   return {
-    depositA: roundCurrency(best.jointDeposit * fairnessRatioA),
-    depositB: roundCurrency(best.jointDeposit * (1 - fairnessRatioA))
+    depositA: Math.ceil(bestResult.depositA * 1.02),
+    depositB: Math.ceil(bestResult.depositB * 1.02)
   };
 }
