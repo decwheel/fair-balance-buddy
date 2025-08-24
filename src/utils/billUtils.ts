@@ -15,25 +15,24 @@ export interface Bill {
  */
 export function rollForwardPastBills(bills: Bill[]): Bill[] {
   const today = new Date().toISOString().split('T')[0];
-  
+
   return bills.map(bill => {
-    // Only roll forward imported bills that are past due
-    if (bill.source !== 'imported' || bill.dueDate >= today) {
+    // If the bill is not past due, return as is
+    if (bill.dueDate >= today) {
       return bill;
     }
 
-    // For imported bills, we'll assume they are monthly recurring bills
-    // and find the next monthly occurrence
+    // Assume past-due bills recur monthly and roll them forward
     const nextOccurrences = generateOccurrences(bill.dueDate, 'monthly', 24);
     const nextDueDate = nextOccurrences.find(date => date >= today);
-    
+
     if (nextDueDate) {
       return {
         ...bill,
         dueDate: nextDueDate
       };
     }
-    
+
     return bill;
   });
 }
