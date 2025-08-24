@@ -52,8 +52,8 @@ export type TimelineEntry = {
 export type SimResult = {
   minBalance: number;
   endBalance: number;
-  requiredMonthlyA: number;
-  requiredMonthlyB?: number;
+  requiredDepositA: number;
+  requiredDepositB?: number;
   entries: TimelineEntry[];
   billSuggestions?: Array<{
     billId: string;
