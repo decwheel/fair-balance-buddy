@@ -115,28 +115,28 @@ export function findDepositSingle(
   bills: Bill[],
   _baseline: number
 ): number {
-  let low = 0;
-  let high = 20000;
-  let bestDeposit = high;
+  // Step 4: total monthly bills (assumes 12-month horizon)
+  const total = bills.reduce((s, b) => s + b.amount, 0);
+  const monthlyBills = total / 12;
 
-  // Check if zero deposit works
-  const testZero = runSingle(0, startDate, pay, bills, { months: 12, buffer: 0 });
-  if (testZero.minBalance >= 0) return 0;
+  // Step 6: convert monthly share to per-pay deposit
+  const cycles =
+    pay.frequency === "WEEKLY" ? 52 / 12 :
+    pay.frequency === "FORTNIGHTLY" || pay.frequency === "BIWEEKLY" ? 26 / 12 :
+    pay.frequency === "FOUR_WEEKLY" ? 13 / 12 : 1;
+  let deposit = monthlyBills / cycles;
 
-  // Binary search
-  for (let iterations = 0; iterations < 50 && high - low > 0.01; iterations++) {
-    const mid = (low + high) / 2;
-    const result = runSingle(mid, startDate, pay, bills, { months: 12, buffer: 0 });
-
-    if (result.minBalance >= 0) {
-      bestDeposit = mid;
-      high = mid;
-    } else {
-      low = mid;
-    }
+  // Step 7: ensure timeline never dips below zero
+  let result = runSingle(deposit, startDate, pay, bills, { months: 12, buffer: 0 });
+  let iterations = 0;
+  while (result.minBalance < 0 && iterations < 20) {
+    const shortfallPerMonth = -result.minBalance / 12;
+    deposit += shortfallPerMonth / cycles;
+    result = runSingle(deposit, startDate, pay, bills, { months: 12, buffer: 0 });
+    iterations++;
   }
 
-  return Math.ceil(bestDeposit * 1.02);
+  return Math.round(deposit);
 }
 
 export function findDepositJoint(
@@ -147,8 +147,7 @@ export function findDepositJoint(
   fairnessRatioA: number,
   _baseline: number
 ): { depositA: number; depositB: number } {
-  // Convert pay frequency to number of pay cycles per month
-  const cyclesPerMonth = (freq: PaySchedule["frequency"]): number => {
+  const cycles = (freq: PaySchedule["frequency"]): number => {
     switch (freq) {
       case "WEEKLY":
         return 52 / 12;
@@ -162,41 +161,30 @@ export function findDepositJoint(
     }
   };
 
-  const cyclesA = cyclesPerMonth(payA.frequency);
-  const cyclesB = cyclesPerMonth(payB.frequency);
+  const cyclesA = cycles(payA.frequency);
+  const cyclesB = cycles(payB.frequency);
 
-  let monthlyLow = 0;
-  let monthlyHigh = 30000;
-  let bestResult = { depositA: monthlyHigh, depositB: monthlyHigh };
+  // Step 4: monthly bills total
+  const total = bills.reduce((s, b) => s + b.amount, 0);
+  const monthlyBills = total / 12;
 
-  // Check if zero deposits work
-  const testZero = runJoint(0, 0, startDate, payA, payB, bills, {
-    months: 12,
-    fairnessRatioA
-  });
-  if (testZero.minBalance >= 0) return { depositA: 0, depositB: 0 };
+  // Step 5/6: split by wage ratio then convert to per-pay deposits
+  let depA = (monthlyBills * fairnessRatioA) / cyclesA;
+  let depB = (monthlyBills * (1 - fairnessRatioA)) / cyclesB;
 
-  // Binary search on total monthly deposits
-  for (let iterations = 0; iterations < 50 && monthlyHigh - monthlyLow > 0.01; iterations++) {
-    const monthlyMid = (monthlyLow + monthlyHigh) / 2;
-    const perPayA = (monthlyMid * fairnessRatioA) / cyclesA;
-    const perPayB = (monthlyMid * (1 - fairnessRatioA)) / cyclesB;
-
-    const result = runJoint(perPayA, perPayB, startDate, payA, payB, bills, {
-      months: 12,
-      fairnessRatioA
-    });
-
-    if (result.minBalance >= 0) {
-      bestResult = { depositA: perPayA, depositB: perPayB };
-      monthlyHigh = monthlyMid;
-    } else {
-      monthlyLow = monthlyMid;
-    }
+  // Step 7: ensure positive balance over the year
+  let result = runJoint(depA, depB, startDate, payA, payB, bills, { months: 12, fairnessRatioA });
+  let iterations = 0;
+  while (result.minBalance < 0 && iterations < 20) {
+    const shortfallPerMonth = -result.minBalance / 12;
+    depA += (shortfallPerMonth * fairnessRatioA) / cyclesA;
+    depB += (shortfallPerMonth * (1 - fairnessRatioA)) / cyclesB;
+    result = runJoint(depA, depB, startDate, payA, payB, bills, { months: 12, fairnessRatioA });
+    iterations++;
   }
 
   return {
-    depositA: Math.ceil(bestResult.depositA * 1.02),
-    depositB: Math.ceil(bestResult.depositB * 1.02)
+    depositA: Math.round(depA),
+    depositB: Math.round(depB)
   };
 }
