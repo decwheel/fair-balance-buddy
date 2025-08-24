@@ -1,4 +1,5 @@
 import { format, addDays, addMonths, isWeekend } from 'date-fns';
+import { isHoliday } from '@/lib/dateUtils';
 
 export type ISODate = string;
 
@@ -46,15 +47,14 @@ export function calculatePayDates(
 }
 
 export function nextBusinessDay(date: ISODate): ISODate {
-  const d = new Date(date);
-  
-  if (isWeekend(d)) {
-    // If weekend, move to next Monday
-    const nextMonday = addDays(d, d.getDay() === 6 ? 2 : 1); // Saturday -> Monday, Sunday -> Monday
-    return format(nextMonday, 'yyyy-MM-dd');
+  let d = new Date(date);
+
+  // Advance while date falls on weekend or Irish bank holiday
+  while (isWeekend(d) || isHoliday(d)) {
+    d = addDays(d, 1);
   }
-  
-  return date;
+
+  return format(d, 'yyyy-MM-dd');
 }
 
 export function generateRefundDates(

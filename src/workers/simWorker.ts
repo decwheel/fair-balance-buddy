@@ -8,42 +8,31 @@ import type {
   Transaction,
   SalaryCandidate,
   RecurringItem,
-  PayFrequency,
 } from "../types";
 import { payDates } from "../lib/dateUtils";
 import { detectSalaryCandidates, detectRecurringBillsFromTx } from "../lib/recurring";
-import { findOptimalStartDate } from "../services/optimizationEngine";
-
-function monthlyToPerPay(monthly: number, freq: PayFrequency): number {
-  switch (freq) {
-    case "weekly":       return monthly * (12 / 52);
-    case "fortnightly":  return monthly * (12 / 26);
-    case "four_weekly":  return monthly * (12 / 13);
-    case "monthly":
-    default:             return monthly;
-  }
-}
+import { findDepositSingle, findDepositJoint } from "../services/forecastAdapters";
 
 // Minimal non-blocking skeleton.
 function simulate(inputs: PlanInputs): SimResult {
   const months = 12;
   const entries: TimelineEntry[] = [];
 
-  // Calculate optimized deposits using the new optimization engine
+  // Calculate deposits using ratio-based method
   let optimizedDeposits: { monthlyA: number; monthlyB?: number };
-  let billSuggestions: SimResult['billSuggestions'] = [];
-  
-  try {
-    const optimization = findOptimalStartDate(inputs);
-    optimizedDeposits = optimization.optimizedDeposits;
-    billSuggestions = optimization.billSuggestions;
-  } catch (error) {
-    console.warn("[simulate] Optimization failed, using fallback:", error);
-    // Fallback to original values if optimization fails
-    optimizedDeposits = {
-      monthlyA: monthlyToPerPay(inputs.a.netMonthly, inputs.a.freq),
-      monthlyB: inputs.b ? monthlyToPerPay(inputs.b.netMonthly, inputs.b.freq) : undefined,
-    };
+  const billSuggestions: SimResult['billSuggestions'] = [];
+
+  const allBills = [...(inputs.bills ?? []), ...(inputs.elecPredicted ?? [])];
+  const payScheduleA = { frequency: inputs.a.freq.toUpperCase(), anchorDate: inputs.a.firstPayISO } as const;
+
+  if (inputs.b) {
+    const payScheduleB = { frequency: inputs.b.freq.toUpperCase(), anchorDate: inputs.b.firstPayISO } as const;
+    const fairnessRatio = inputs.fairnessRatio ? inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b) : 0.5;
+    const { depositA, depositB } = findDepositJoint(inputs.startISO, payScheduleA, payScheduleB, allBills, fairnessRatio, 0);
+    optimizedDeposits = { monthlyA: depositA, monthlyB: depositB };
+  } else {
+    const depositA = findDepositSingle(inputs.startISO, payScheduleA, allBills, 0);
+    optimizedDeposits = { monthlyA: depositA };
   }
 
   // Inflows: A (using optimized deposits)

@@ -18,8 +18,12 @@ export async function loadMockTransactionsB(): Promise<Transaction[]> {
   return normalizeTransactions(raw);
 }
 
+// Normalizes raw fixture data into Transaction objects
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function normalizeTransactions(raw: any): Transaction[] {
-  const items: any[] = Array.isArray(raw) ? raw : raw?.transactions ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items: any[] = Array.isArray(raw) ? raw : (raw as any)?.transactions ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return items.map((it: any, idx: number) => {
     // FairSplit fixtures shape
     if (it && (it.transactionId || it.internalTransactionId)) {
@@ -112,7 +116,8 @@ export function extractPayScheduleFromWages(wages: Transaction[]): {
   if (avgInterval <= 9) frequency = 'WEEKLY';
   else if (avgInterval <= 16) frequency = 'FORTNIGHTLY';
   else if (avgInterval <= 23) frequency = 'BIWEEKLY';
-  else if (avgInterval <= 32) frequency = 'FOUR_WEEKLY';
+  // Treat gaps of ~28 days as monthly rather than four-weekly
+  else if (avgInterval <= 27) frequency = 'FOUR_WEEKLY';
   else frequency = 'MONTHLY';
 
   return {
