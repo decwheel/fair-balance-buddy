@@ -354,26 +354,48 @@ setState(prev => ({
       const selectedBills = state.bills.filter(b => state.includedBillIds.includes(b.id!));
       const allBills = rollForwardPastBills(selectedBills);
 
+      const perPayFromMonthly = (monthly: number, freq: PaySchedule["frequency"]): number => {
+        switch (freq) {
+          case "WEEKLY":
+            return monthly * (12 / 52);
+          case "FORTNIGHTLY":
+          case "BIWEEKLY":
+            return monthly * (12 / 26);
+          case "FOUR_WEEKLY":
+            return monthly * (12 / 13);
+          case "MONTHLY":
+          default:
+            return monthly;
+        }
+      };
+
       if (state.mode === 'single') {
         // Use optimized deposits from worker result if available, otherwise use old forecast
         const workerResult = result;
         const useWorkerOptimization = workerResult && workerResult.requiredMonthlyA;
-        
+
         if (useWorkerOptimization) {
-          // Display optimized deposits from worker
+          // Use worker's optimized deposits but generate timeline with bills
+          const depositAnchor = getDepositAnchorDate(state.userA.paySchedule!);
+          const payScheduleWithDepositDate: PaySchedule = {
+            ...state.userA.paySchedule!,
+            anchorDate: depositAnchor
+          };
+          const perPay = perPayFromMonthly(workerResult.requiredMonthlyA, payScheduleWithDepositDate.frequency);
+          const forecast = runSingle(
+            perPay,
+            today,
+            payScheduleWithDepositDate,
+            allBills,
+            { months: 12, buffer: 0 }
+          );
+
           setState(prev => ({
             ...prev,
             forecastResult: {
               depositA: workerResult.requiredMonthlyA,
-              depositB: workerResult.requiredMonthlyB,
-              minBalance: workerResult.minBalance,
-              timeline: workerResult.entries.map(e => ({
-                date: e.dateISO,
-                balance: workerResult.entries
-                  .filter(entry => entry.dateISO <= e.dateISO)
-                  .reduce((sum, entry) => sum + entry.delta, 0),
-                event: e.label
-              }))
+              minBalance: forecast.minBalance,
+              timeline: forecast.timeline
             },
             isLoading: false,
             step: 'results'
@@ -417,22 +439,41 @@ setState(prev => ({
         // Use optimized deposits from worker result if available, otherwise use old forecast
         const workerResult = result;
         const useWorkerOptimization = workerResult && workerResult.requiredMonthlyA;
-        
+
         if (useWorkerOptimization) {
-          // Display optimized deposits from worker for joint mode
+          // Use worker's optimized deposits but generate timeline with bills
+          const depositAnchorA = getDepositAnchorDate(state.userA.paySchedule!);
+          const depositAnchorB = getDepositAnchorDate(state.userB.paySchedule!);
+
+          const payScheduleAWithDepositDate: PaySchedule = {
+            ...state.userA.paySchedule!,
+            anchorDate: depositAnchorA
+          };
+          const payScheduleBWithDepositDate: PaySchedule = {
+            ...state.userB.paySchedule!,
+            anchorDate: depositAnchorB
+          };
+
+          const perPayA = perPayFromMonthly(workerResult.requiredMonthlyA, payScheduleAWithDepositDate.frequency);
+          const perPayB = perPayFromMonthly(workerResult.requiredMonthlyB || 0, payScheduleBWithDepositDate.frequency);
+          const fairnessRatio = 0.55;
+          const forecast = runJoint(
+            perPayA,
+            perPayB,
+            today,
+            payScheduleAWithDepositDate,
+            payScheduleBWithDepositDate,
+            allBills,
+            { months: 12, fairnessRatioA: fairnessRatio }
+          );
+
           setState(prev => ({
             ...prev,
             forecastResult: {
               depositA: workerResult.requiredMonthlyA,
               depositB: workerResult.requiredMonthlyB || 0,
-              minBalance: workerResult.minBalance,
-              timeline: workerResult.entries.map(e => ({
-                date: e.dateISO,
-                balance: workerResult.entries
-                  .filter(entry => entry.dateISO <= e.dateISO)
-                  .reduce((sum, entry) => sum + entry.delta, 0),
-                event: e.label
-              }))
+              minBalance: forecast.minBalance,
+              timeline: forecast.timeline
             },
             isLoading: false,
             step: 'results'
@@ -441,7 +482,7 @@ setState(prev => ({
           // Fallback to original forecast system
           const baselineDeposit = 800;
           const fairnessRatio = 0.55;
-          
+
           const depositAnchorA = getDepositAnchorDate(state.userA.paySchedule!);
           const depositAnchorB = getDepositAnchorDate(state.userB.paySchedule!);
           
