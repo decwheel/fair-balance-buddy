@@ -24,7 +24,7 @@ import { loadMockTransactionsA, loadMockTransactionsB, categorizeBankTransaction
 import { EsbReading } from '@/services/esbCsv';
 import { TariffRates } from '@/services/billPdf';
 import { Bill, PaySchedule, findDepositSingle, findDepositJoint, runSingle, runJoint } from '@/services/forecastAdapters';
-import { formatCurrency, calculatePayDates, nextBusinessDay } from '@/utils/dateUtils';
+import { formatCurrency, calculatePayDates } from '@/utils/dateUtils';
 import { predictBills, ElectricityMode } from '@/services/electricityPredictors';
 import { Calendar as DayPicker } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -33,7 +33,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import { BillEditorDialog, BillFrequency } from '@/components/bills/BillEditorDialog';
 import { generateOccurrences } from '@/utils/recurrence';
-import { subDays, parseISO } from 'date-fns';
 import { persistBills } from '@/services/supabaseBills';
 import { rollForwardPastBills } from '@/utils/billUtils';
 import type { RecurringItem, SalaryCandidate } from '@/types';
@@ -309,37 +308,12 @@ setState(prev => ({
     });
   };
 
-  // Helper to get deposit anchor date based on pay schedule
-  const getDepositAnchorDate = (paySchedule: PaySchedule): string => {
-    const today = new Date().toISOString().split('T')[0];
-    const frequency = paySchedule.frequency.toUpperCase() as PaySchedule['frequency'];
-
-    console.log('getDepositAnchorDate - Input paySchedule:', paySchedule);
-    console.log('getDepositAnchorDate - Today:', today);
-
-    if (frequency === 'MONTHLY') {
-      // For monthly pay, deposits should start on the 1st of current or next month
-      const now = new Date();
-      let firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-
-      // If we're past the 1st of this month, use the 1st of next month
-      if (now.getDate() > 1) {
-        firstOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      }
-
-      const firstOfMonthStr = firstOfMonth.toISOString().split('T')[0];
-      const result = nextBusinessDay(firstOfMonthStr);
-      console.log('getDepositAnchorDate - MONTHLY result:', result);
-      return result;
-    } else {
-      // For weekly/fortnightly schedules, deposit the day before payday
-      const payDates = calculatePayDates(frequency, paySchedule.anchorDate, 6);
-      const nextPayDate = payDates.find(date => date > today);
-      const target = nextPayDate ? subDays(parseISO(nextPayDate), 1) : parseISO(today);
-      const result = nextBusinessDay(target.toISOString().split('T')[0]);
-      console.log('getDepositAnchorDate - WEEKLY/FORTNIGHTLY result:', result);
-      return result;
-    }
+  // Determine the forecast start date: the most recent pay date before the earliest bill
+  const getStartDate = (paySchedule: PaySchedule, bills: Bill[]): string => {
+    const earliestDue = bills.reduce((min, b) => (b.dueDate < min ? b.dueDate : min), '9999-12-31');
+    const pays = calculatePayDates(paySchedule.frequency, paySchedule.anchorDate, 18);
+    const before = pays.filter(p => p <= earliestDue);
+    return before.length ? before[before.length - 1] : pays[0];
   };
 
   const runForecast = (currentState: AppState = state) => {
@@ -349,9 +323,11 @@ setState(prev => ({
     setState({ ...currentState, isLoading: true });
 
     try {
-      const today = new Date().toISOString().split('T')[0];
       const selectedBills = currentState.bills.filter(b => currentState.includedBillIds.includes(b.id!));
       const allBills = rollForwardPastBills(selectedBills);
+
+      const startDateA = getStartDate(currentState.userA.paySchedule!, allBills);
+      const payScheduleA: PaySchedule = { ...currentState.userA.paySchedule!, anchorDate: startDateA };
 
       if (currentState.mode === 'single') {
         // Use optimized deposits from worker result if available, otherwise use old forecast
@@ -360,15 +336,10 @@ setState(prev => ({
 
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
-          const depositAnchor = getDepositAnchorDate(currentState.userA.paySchedule!);
-          const payScheduleWithDepositDate: PaySchedule = {
-            ...currentState.userA.paySchedule!,
-            anchorDate: depositAnchor
-          };
           const forecast = runSingle(
             workerResult.requiredDepositA,
-            today,
-            payScheduleWithDepositDate,
+            startDateA,
+            payScheduleA,
             allBills,
             { months: 12, buffer: 0 }
           );
@@ -386,23 +357,18 @@ setState(prev => ({
         } else {
           // Fallback to original forecast system
           const baselineDeposit = 150;
-          const depositAnchor = getDepositAnchorDate(currentState.userA.paySchedule!);
-          const payScheduleWithDepositDate: PaySchedule = {
-            ...currentState.userA.paySchedule!,
-            anchorDate: depositAnchor
-          };
-          
+
           const optimalDeposit = findDepositSingle(
-            today,
-            payScheduleWithDepositDate,
+            startDateA,
+            payScheduleA,
             allBills,
             baselineDeposit
           );
 
           const result = runSingle(
             optimalDeposit,
-            today,
-            payScheduleWithDepositDate,
+            startDateA,
+            payScheduleA,
             allBills,
             { months: 12, buffer: 0 }
           );
@@ -423,27 +389,19 @@ setState(prev => ({
         const workerResult = result;
         const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
 
+        const startDateB = getStartDate(currentState.userB.paySchedule!, allBills);
+        const payScheduleB: PaySchedule = { ...currentState.userB.paySchedule!, anchorDate: startDateB };
+        const startDate = startDateA < startDateB ? startDateA : startDateB;
+
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
-          const depositAnchorA = getDepositAnchorDate(currentState.userA.paySchedule!);
-          const depositAnchorB = getDepositAnchorDate(currentState.userB.paySchedule!);
-
-          const payScheduleAWithDepositDate: PaySchedule = {
-            ...currentState.userA.paySchedule!,
-            anchorDate: depositAnchorA
-          };
-          const payScheduleBWithDepositDate: PaySchedule = {
-            ...currentState.userB.paySchedule!,
-            anchorDate: depositAnchorB
-          };
-
           const fairnessRatio = 0.55;
           const forecast = runJoint(
             workerResult.requiredDepositA,
             workerResult.requiredDepositB || 0,
-            today,
-            payScheduleAWithDepositDate,
-            payScheduleBWithDepositDate,
+            startDate,
+            payScheduleA,
+            payScheduleB,
             allBills,
             { months: 12, fairnessRatioA: fairnessRatio }
           );
@@ -464,22 +422,12 @@ setState(prev => ({
           const baselineDeposit = 800;
           const fairnessRatio = 0.55;
 
-          const depositAnchorA = getDepositAnchorDate(currentState.userA.paySchedule!);
-          const depositAnchorB = getDepositAnchorDate(currentState.userB.paySchedule!);
-          
-          const payScheduleAWithDepositDate: PaySchedule = {
-            ...currentState.userA.paySchedule!,
-            anchorDate: depositAnchorA
-          };
-          const payScheduleBWithDepositDate: PaySchedule = {
-            ...currentState.userB.paySchedule!,
-            anchorDate: depositAnchorB
-          };
-          
+          const startDateJoint = startDateA < startDateB ? startDateA : startDateB;
+
           const { depositA, depositB } = findDepositJoint(
-            today,
-            payScheduleAWithDepositDate,
-            payScheduleBWithDepositDate,
+            startDateJoint,
+            payScheduleA,
+            payScheduleB,
             allBills,
             fairnessRatio,
             baselineDeposit
@@ -488,9 +436,9 @@ setState(prev => ({
           const result = runJoint(
             depositA,
             depositB,
-            today,
-            payScheduleAWithDepositDate,
-            payScheduleBWithDepositDate,
+            startDateJoint,
+            payScheduleA,
+            payScheduleB,
             allBills,
             { months: 12, fairnessRatioA: fairnessRatio }
           );
