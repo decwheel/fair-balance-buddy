@@ -28,21 +28,36 @@ function simulate(inputs: PlanInputs): SimResult {
   const months = 12;
   const entries: TimelineEntry[] = [];
 
-  // Inflows: A
+  // Calculate optimized deposits using the new optimization engine
+  const { findOptimalStartDate } = require("../services/optimizationEngine");
+  let optimizedDeposits: { monthlyA: number; monthlyB?: number };
+  
+  try {
+    const optimization = findOptimalStartDate(inputs);
+    optimizedDeposits = optimization.optimizedDeposits;
+  } catch (error) {
+    // Fallback to original values if optimization fails
+    optimizedDeposits = {
+      monthlyA: inputs.a.netMonthly,
+      monthlyB: inputs.b?.netMonthly
+    };
+  }
+
+  // Inflows: A (using optimized deposits)
   const aPays = payDates(inputs.a.firstPayISO, inputs.a.freq, months).map((d) => ({
     dateISO: d,
-    delta: perPayFromMonthly(inputs.a.netMonthly, inputs.a.freq),
-    label: "Pay A",
+    delta: perPayFromMonthly(optimizedDeposits.monthlyA, inputs.a.freq),
+    label: "Pay A (Optimized)",
     who: "A" as const,
   }));
   entries.push(...aPays);
 
-  // Optional B
-  if (inputs.b) {
+  // Optional B (using optimized deposits)
+  if (inputs.b && optimizedDeposits.monthlyB) {
     const bPays = payDates(inputs.b.firstPayISO, inputs.b.freq, months).map((d) => ({
       dateISO: d,
-      delta: perPayFromMonthly(inputs.b!.netMonthly, inputs.b!.freq),
-      label: "Pay B",
+      delta: perPayFromMonthly(optimizedDeposits.monthlyB!, inputs.b!.freq),
+      label: "Pay B (Optimized)",
       who: "B" as const,
     }));
     entries.push(...bPays);
@@ -56,8 +71,22 @@ function simulate(inputs: PlanInputs): SimResult {
     if (e.dueDateISO) entries.push({ dateISO: e.dueDateISO, delta: -e.amount, label: e.name, who: "JOINT" });
   }
   for (const p of inputs.pots ?? []) {
-    // naive: charge on start day; refined later
-    entries.push({ dateISO: inputs.startISO, delta: -p.monthly, label: `Pot: ${p.name}`, who: p.owner });
+    // Distribute pot contributions based on fairness ratio
+    const fairnessRatio = inputs.fairnessRatio 
+      ? inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b)
+      : (inputs.b ? 0.5 : 1);
+      
+    if (p.owner === "JOINT") {
+      const potA = p.monthly * fairnessRatio;
+      const potB = p.monthly * (1 - fairnessRatio);
+      
+      entries.push({ dateISO: inputs.startISO, delta: -potA, label: `${p.name} (A's share)`, who: "A" });
+      if (inputs.b) {
+        entries.push({ dateISO: inputs.startISO, delta: -potB, label: `${p.name} (B's share)`, who: "B" });
+      }
+    } else {
+      entries.push({ dateISO: inputs.startISO, delta: -p.monthly, label: `Pot: ${p.name}`, who: p.owner });
+    }
   }
 
   entries.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
@@ -72,8 +101,8 @@ function simulate(inputs: PlanInputs): SimResult {
   return {
     minBalance: Number.isFinite(minBal) ? minBal : 0,
     endBalance: bal,
-    requiredMonthlyA: 0,
-    requiredMonthlyB: undefined,
+    requiredMonthlyA: optimizedDeposits.monthlyA,
+    requiredMonthlyB: optimizedDeposits.monthlyB,
     entries,
   };
 }
