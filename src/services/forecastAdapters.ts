@@ -147,9 +147,27 @@ export function findDepositJoint(
   fairnessRatioA: number,
   _baseline: number
 ): { depositA: number; depositB: number } {
-  let totalLow = 0;
-  let totalHigh = 30000;
-  let bestResult = { depositA: totalHigh, depositB: totalHigh };
+  // Convert pay frequency to number of pay cycles per month
+  const cyclesPerMonth = (freq: PaySchedule["frequency"]): number => {
+    switch (freq) {
+      case "WEEKLY":
+        return 52 / 12;
+      case "FORTNIGHTLY":
+      case "BIWEEKLY":
+        return 26 / 12;
+      case "FOUR_WEEKLY":
+        return 13 / 12;
+      default:
+        return 1;
+    }
+  };
+
+  const cyclesA = cyclesPerMonth(payA.frequency);
+  const cyclesB = cyclesPerMonth(payB.frequency);
+
+  let monthlyLow = 0;
+  let monthlyHigh = 30000;
+  let bestResult = { depositA: monthlyHigh, depositB: monthlyHigh };
 
   // Check if zero deposits work
   const testZero = runJoint(0, 0, startDate, payA, payB, bills, {
@@ -158,22 +176,22 @@ export function findDepositJoint(
   });
   if (testZero.minBalance >= 0) return { depositA: 0, depositB: 0 };
 
-  // Binary search
-  for (let iterations = 0; iterations < 50 && totalHigh - totalLow > 0.01; iterations++) {
-    const totalMid = (totalLow + totalHigh) / 2;
-    const depositA = totalMid * fairnessRatioA;
-    const depositB = totalMid * (1 - fairnessRatioA);
+  // Binary search on total monthly deposits
+  for (let iterations = 0; iterations < 50 && monthlyHigh - monthlyLow > 0.01; iterations++) {
+    const monthlyMid = (monthlyLow + monthlyHigh) / 2;
+    const perPayA = (monthlyMid * fairnessRatioA) / cyclesA;
+    const perPayB = (monthlyMid * (1 - fairnessRatioA)) / cyclesB;
 
-    const result = runJoint(depositA, depositB, startDate, payA, payB, bills, {
+    const result = runJoint(perPayA, perPayB, startDate, payA, payB, bills, {
       months: 12,
       fairnessRatioA
     });
 
     if (result.minBalance >= 0) {
-      bestResult = { depositA, depositB };
-      totalHigh = totalMid;
+      bestResult = { depositA: perPayA, depositB: perPayB };
+      monthlyHigh = monthlyMid;
     } else {
-      totalLow = totalMid;
+      monthlyLow = monthlyMid;
     }
   }
 

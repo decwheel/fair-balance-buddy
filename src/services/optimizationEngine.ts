@@ -31,8 +31,23 @@ function mapFrequency(freq: PayFrequency): "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" 
     case "weekly": return "WEEKLY";
     case "fortnightly": return "FORTNIGHTLY";
     case "four_weekly": return "FOUR_WEEKLY";
-    case "monthly": 
+    case "monthly":
     default: return "MONTHLY";
+  }
+}
+
+// Number of pay cycles in an average month for a given frequency
+function cyclesPerMonth(freq: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "BIWEEKLY" | "FOUR_WEEKLY"): number {
+  switch (freq) {
+    case "WEEKLY":
+      return 52 / 12;
+    case "FORTNIGHTLY":
+    case "BIWEEKLY":
+      return 26 / 12;
+    case "FOUR_WEEKLY":
+      return 13 / 12;
+    default:
+      return 1;
   }
 }
 
@@ -77,9 +92,15 @@ function generateBillSuggestions(
         const testDeposits = testOptimization.optimizedDeposits;
         const testMinBalance = testOptimization.scenarios[0]?.minBalance || 0;
         
-        // Calculate potential savings
-        const currentTotal = currentOptimizedDeposits.monthlyA + (currentOptimizedDeposits.monthlyB || 0);
-        const testTotal = testDeposits.monthlyA + (testDeposits.monthlyB || 0);
+        // Calculate potential savings (convert per-pay deposits to monthly totals)
+        const cyclesA = cyclesPerMonth(mapFrequency(inputs.a.freq));
+        const cyclesB = inputs.b ? cyclesPerMonth(mapFrequency(inputs.b.freq)) : 0;
+        const currentTotal =
+          currentOptimizedDeposits.monthlyA * cyclesA +
+          (currentOptimizedDeposits.monthlyB || 0) * cyclesB;
+        const testTotal =
+          testDeposits.monthlyA * cyclesA +
+          (testDeposits.monthlyB || 0) * cyclesB;
         const savingsAmount = currentTotal - testTotal;
         
         // Suggest if it provides meaningful savings (>€10/month) and maintains positive balance
@@ -257,13 +278,15 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
         
         const optimalDeposit = findDepositSingleSimple(testDate, payScheduleA, bills, inputs.minBalance);
         const result = runSingleSimple(optimalDeposit, testDate, payScheduleA, bills, { baseline: inputs.minBalance });
-        
+
+        const monthlyDeposit = optimalDeposit * cyclesPerMonth(payScheduleA.frequency);
+
         scenarios.push({
           startDate: testDate,
-          deposits: { monthlyA: optimalDeposit },
+          deposits: { monthlyA: optimalDeposit }, // per-pay deposit
           minBalance: result.minBalance,
-          totalDeposits: optimalDeposit,
-          score: calculateScore(optimalDeposit, result.minBalance, result.endBalance)
+          totalDeposits: monthlyDeposit,
+          score: calculateScore(monthlyDeposit, result.minBalance, result.endBalance)
         });
         
       } else if (inputs.mode === "joint" && inputs.b) {
@@ -292,22 +315,33 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
           : 0.5;
           
         const { depositA, depositB } = findDepositJointSimple(
-          testDate, 
-          payScheduleA, 
-          payScheduleB, 
-          bills, 
-          fairnessRatio, 
+          testDate,
+          payScheduleA,
+          payScheduleB,
+          bills,
+          fairnessRatio,
           inputs.minBalance
         );
-        
-        const result = runJointSimple(depositA, depositB, testDate, payScheduleA, payScheduleB, bills, { baseline: inputs.minBalance });
-        
+
+        const result = runJointSimple(
+          depositA,
+          depositB,
+          testDate,
+          payScheduleA,
+          payScheduleB,
+          bills,
+          { baseline: inputs.minBalance }
+        );
+
+        const monthlyA = depositA * cyclesPerMonth(payScheduleA.frequency);
+        const monthlyB = depositB * cyclesPerMonth(payScheduleB.frequency);
+
         scenarios.push({
           startDate: testDate,
-          deposits: { monthlyA: depositA, monthlyB: depositB },
+          deposits: { monthlyA: depositA, monthlyB: depositB }, // per-pay deposits
           minBalance: result.minBalance,
-          totalDeposits: depositA + depositB,
-          score: calculateScore(depositA + depositB, result.minBalance, result.endBalance)
+          totalDeposits: monthlyA + monthlyB,
+          score: calculateScore(monthlyA + monthlyB, result.minBalance, result.endBalance)
         });
       }
     } catch (error) {
@@ -373,33 +407,36 @@ function findDepositJointSimple(
   fairnessRatio: number,
   baseline: number
 ): { depositA: number; depositB: number } {
-  let totalLow = 0;
-  let totalHigh = 30000;
-  let bestResult = { depositA: totalHigh, depositB: totalHigh };
-  
+  const cyclesA = cyclesPerMonth(payA.frequency);
+  const cyclesB = cyclesPerMonth(payB.frequency);
+
+  let monthlyLow = 0;
+  let monthlyHigh = 30000;
+  let bestResult = { depositA: monthlyHigh, depositB: monthlyHigh };
+
   // Check if zero deposits work
   const testZero = runJointSimple(0, 0, startDate, payA, payB, bills, { baseline });
   if (testZero.minBalance >= 0) return { depositA: 0, depositB: 0 };
-  
-  // Binary search
-  for (let iterations = 0; iterations < 50 && totalHigh - totalLow > 0.01; iterations++) {
-    const totalMid = (totalLow + totalHigh) / 2;
-    const depositA = totalMid * fairnessRatio;
-    const depositB = totalMid * (1 - fairnessRatio);
-    
-    const result = runJointSimple(depositA, depositB, startDate, payA, payB, bills, { baseline });
-    
+
+  // Binary search on total monthly deposits
+  for (let iterations = 0; iterations < 50 && monthlyHigh - monthlyLow > 0.01; iterations++) {
+    const monthlyMid = (monthlyLow + monthlyHigh) / 2;
+    const perPayA = (monthlyMid * fairnessRatio) / cyclesA;
+    const perPayB = (monthlyMid * (1 - fairnessRatio)) / cyclesB;
+
+    const result = runJointSimple(perPayA, perPayB, startDate, payA, payB, bills, { baseline });
+
     if (result.minBalance >= 0) {
-      bestResult = { depositA, depositB };
-      totalHigh = totalMid;
+      bestResult = { depositA: perPayA, depositB: perPayB };
+      monthlyHigh = monthlyMid;
     } else {
-      totalLow = totalMid;
+      monthlyLow = monthlyMid;
     }
   }
-  
-  return { 
-    depositA: Math.ceil(bestResult.depositA * 1.02), 
-    depositB: Math.ceil(bestResult.depositB * 1.02) 
+
+  return {
+    depositA: Math.ceil(bestResult.depositA * 1.02),
+    depositB: Math.ceil(bestResult.depositB * 1.02)
   };
 }
 
