@@ -21,6 +21,7 @@ interface OptimizationResult {
     currentDate: string;
     suggestedDate: string;
     savingsAmount: number;
+    reason: string;
   }>;
 }
 
@@ -33,6 +34,79 @@ function mapFrequency(freq: PayFrequency): "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" 
     case "monthly": 
     default: return "MONTHLY";
   }
+}
+
+/**
+ * Generate bill movement suggestions by testing different due dates
+ */
+function generateBillSuggestions(
+  inputs: PlanInputs,
+  currentOptimizedDeposits: { monthlyA: number; monthlyB?: number },
+  currentMinBalance: number
+): OptimizationResult['billSuggestions'] {
+  const suggestions: OptimizationResult['billSuggestions'] = [];
+  
+  // Only suggest moving bills that are movable and variable
+  const movableBills = inputs.bills.filter(bill => bill.movable && bill.dueDateISO);
+  
+  for (const bill of movableBills) {
+    const originalDate = bill.dueDateISO!;
+    const testDates: string[] = [];
+    
+    // Generate test dates: 7 days before to 21 days after current due date
+    const baseDate = new Date(originalDate);
+    for (let offset = -7; offset <= 21; offset += 7) {
+      const testDate = new Date(baseDate);
+      testDate.setDate(testDate.getDate() + offset);
+      const testDateISO = testDate.toISOString().split('T')[0];
+      if (testDateISO !== originalDate) {
+        testDates.push(testDateISO);
+      }
+    }
+    
+    for (const testDate of testDates) {
+      try {
+        // Create modified inputs with the bill moved to test date
+        const modifiedBills = inputs.bills.map(b => 
+          b.id === bill.id ? { ...b, dueDateISO: testDate } : b
+        );
+        const modifiedInputs = { ...inputs, bills: modifiedBills };
+        
+        // Calculate optimization with modified bill date
+        const testOptimization = findOptimalStartDate(modifiedInputs);
+        const testDeposits = testOptimization.optimizedDeposits;
+        const testMinBalance = testOptimization.scenarios[0]?.minBalance || 0;
+        
+        // Calculate potential savings
+        const currentTotal = currentOptimizedDeposits.monthlyA + (currentOptimizedDeposits.monthlyB || 0);
+        const testTotal = testDeposits.monthlyA + (testDeposits.monthlyB || 0);
+        const savingsAmount = currentTotal - testTotal;
+        
+        // Suggest if it provides meaningful savings (>€10/month) and maintains positive balance
+        if (savingsAmount > 10 && testMinBalance >= 0) {
+          const daysDiff = Math.floor((new Date(testDate).getTime() - new Date(originalDate).getTime()) / (1000 * 60 * 60 * 24));
+          const direction = daysDiff > 0 ? 'later' : 'earlier';
+          const reason = `Moving ${Math.abs(daysDiff)} days ${direction} reduces monthly deposits by €${savingsAmount.toFixed(0)}`;
+          
+          suggestions.push({
+            billId: bill.id!,
+            currentDate: originalDate,
+            suggestedDate: testDate,
+            savingsAmount: Math.round(savingsAmount),
+            reason
+          });
+        }
+      } catch (error) {
+        // Skip failed suggestions
+        continue;
+      }
+    }
+  }
+  
+  // Sort by savings amount (highest first) and return top 3
+  return suggestions
+    .sort((a, b) => b.savingsAmount - a.savingsAmount)
+    .slice(0, 3);
 }
 
 interface PaySchedule {
@@ -248,11 +322,16 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
     validScenarios.reduce((best, current) => current.score > best.score ? current : best, validScenarios[0]) :
     scenarios[0]; // Fallback if no valid scenarios
   
+  // Generate bill movement suggestions
+  const billSuggestions = bestScenario ? 
+    generateBillSuggestions(inputs, bestScenario.deposits, bestScenario.minBalance) : 
+    [];
+
   return {
     bestStartDate: bestScenario?.startDate || startISO,
     optimizedDeposits: bestScenario?.deposits || { monthlyA: inputs.a.netMonthly },
     scenarios: scenarios.sort((a, b) => b.score - a.score),
-    billSuggestions: []
+    billSuggestions
   };
 }
 

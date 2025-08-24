@@ -95,7 +95,7 @@ const [state, setState] = useState<AppState>({
   const [recurringMeta, setRecurringMeta] = useState<RecurringMeta>({});
 
   // 🔌 NEW: read worker detections (salary + recurring) from the store
-  const { detected, inputs } = usePlanStore();
+  const { detected, inputs, result } = usePlanStore();
   const topSalary: SalaryCandidate | undefined = detected?.salaries?.[0];
   const topSalaryB: SalaryCandidate | undefined = (detected as any)?.salariesB?.[0];
   const recurringFromStore: RecurringItem[] = detected?.recurring ?? [];
@@ -355,87 +355,136 @@ setState(prev => ({
       const allBills = rollForwardPastBills(selectedBills);
 
       if (state.mode === 'single') {
-        const baselineDeposit = 150; // Better initial guess
+        // Use optimized deposits from worker result if available, otherwise use old forecast
+        const workerResult = result;
+        const useWorkerOptimization = workerResult && workerResult.requiredMonthlyA;
         
-        // Use deposit anchor date based on pay schedule
-        const depositAnchor = getDepositAnchorDate(state.userA.paySchedule!);
-        const payScheduleWithDepositDate: PaySchedule = {
-          ...state.userA.paySchedule!,
-          anchorDate: depositAnchor
-        };
-        
-        const optimalDeposit = findDepositSingle(
-          today,
-          payScheduleWithDepositDate,
-          allBills,
-          baselineDeposit
-        );
+        if (useWorkerOptimization) {
+          // Display optimized deposits from worker
+          setState(prev => ({
+            ...prev,
+            forecastResult: {
+              depositA: workerResult.requiredMonthlyA,
+              depositB: workerResult.requiredMonthlyB,
+              minBalance: workerResult.minBalance,
+              timeline: workerResult.entries.map(e => ({
+                date: e.dateISO,
+                balance: workerResult.entries
+                  .filter(entry => entry.dateISO <= e.dateISO)
+                  .reduce((sum, entry) => sum + entry.delta, 0),
+                event: e.label
+              }))
+            },
+            isLoading: false,
+            step: 'results'
+          }));
+        } else {
+          // Fallback to original forecast system
+          const baselineDeposit = 150;
+          const depositAnchor = getDepositAnchorDate(state.userA.paySchedule!);
+          const payScheduleWithDepositDate: PaySchedule = {
+            ...state.userA.paySchedule!,
+            anchorDate: depositAnchor
+          };
+          
+          const optimalDeposit = findDepositSingle(
+            today,
+            payScheduleWithDepositDate,
+            allBills,
+            baselineDeposit
+          );
 
-        const result = runSingle(
-          optimalDeposit,
-          today,
-          payScheduleWithDepositDate,
-          allBills,
-          { months: 12, buffer: 0 }
-        );
+          const result = runSingle(
+            optimalDeposit,
+            today,
+            payScheduleWithDepositDate,
+            allBills,
+            { months: 12, buffer: 0 }
+          );
 
-        setState(prev => ({
-          ...prev,
-          forecastResult: {
-            depositA: optimalDeposit,
-            minBalance: result.minBalance,
-            timeline: result.timeline
-          },
-          isLoading: false,
-          step: 'results'
-        }));
+          setState(prev => ({
+            ...prev,
+            forecastResult: {
+              depositA: optimalDeposit,
+              minBalance: result.minBalance,
+              timeline: result.timeline
+            },
+            isLoading: false,
+            step: 'results'
+          }));
+        }
       } else if (state.userB?.paySchedule) {
-        const baselineDeposit = 800; // Joint initial guess
-        const fairnessRatio = 0.55; // 55% for user A
+        // Use optimized deposits from worker result if available, otherwise use old forecast
+        const workerResult = result;
+        const useWorkerOptimization = workerResult && workerResult.requiredMonthlyA;
         
-        // Use deposit anchor dates based on pay schedules
-        const depositAnchorA = getDepositAnchorDate(state.userA.paySchedule!);
-        const depositAnchorB = getDepositAnchorDate(state.userB.paySchedule!);
-        
-        const payScheduleAWithDepositDate: PaySchedule = {
-          ...state.userA.paySchedule!,
-          anchorDate: depositAnchorA
-        };
-        const payScheduleBWithDepositDate: PaySchedule = {
-          ...state.userB.paySchedule!,
-          anchorDate: depositAnchorB
-        };
-        
-        const { depositA, depositB } = findDepositJoint(
-          today,
-          payScheduleAWithDepositDate,
-          payScheduleBWithDepositDate,
-          allBills,
-          fairnessRatio,
-          baselineDeposit
-        );
+        if (useWorkerOptimization) {
+          // Display optimized deposits from worker for joint mode
+          setState(prev => ({
+            ...prev,
+            forecastResult: {
+              depositA: workerResult.requiredMonthlyA,
+              depositB: workerResult.requiredMonthlyB || 0,
+              minBalance: workerResult.minBalance,
+              timeline: workerResult.entries.map(e => ({
+                date: e.dateISO,
+                balance: workerResult.entries
+                  .filter(entry => entry.dateISO <= e.dateISO)
+                  .reduce((sum, entry) => sum + entry.delta, 0),
+                event: e.label
+              }))
+            },
+            isLoading: false,
+            step: 'results'
+          }));
+        } else {
+          // Fallback to original forecast system
+          const baselineDeposit = 800;
+          const fairnessRatio = 0.55;
+          
+          const depositAnchorA = getDepositAnchorDate(state.userA.paySchedule!);
+          const depositAnchorB = getDepositAnchorDate(state.userB.paySchedule!);
+          
+          const payScheduleAWithDepositDate: PaySchedule = {
+            ...state.userA.paySchedule!,
+            anchorDate: depositAnchorA
+          };
+          const payScheduleBWithDepositDate: PaySchedule = {
+            ...state.userB.paySchedule!,
+            anchorDate: depositAnchorB
+          };
+          
+          const { depositA, depositB } = findDepositJoint(
+            today,
+            payScheduleAWithDepositDate,
+            payScheduleBWithDepositDate,
+            allBills,
+            fairnessRatio,
+            baselineDeposit
+          );
 
-        const result = runJoint(
-          depositA,
-          depositB,
-          today,
-          payScheduleAWithDepositDate,
-          payScheduleBWithDepositDate,
-          allBills,
-          { months: 12, fairnessRatioA: fairnessRatio }
-        );
-
-        setState(prev => ({
-          ...prev,
-          forecastResult: {
+          const result = runJoint(
             depositA,
             depositB,
-            minBalance: result.minBalance,
-            timeline: result.timeline
-          },
-          isLoading: false,
-          step: 'results'
-        }));
+            today,
+            payScheduleAWithDepositDate,
+            payScheduleBWithDepositDate,
+            allBills,
+            { months: 12, fairnessRatioA: fairnessRatio }
+          );
+
+          setState(prev => ({
+            ...prev,
+            forecastResult: {
+              depositA,
+              depositB,
+              minBalance: result.minBalance,
+              timeline: result.timeline
+            },
+            isLoading: false,
+            step: 'results'
+          }));
+        }
       }
     } catch (error) {
       console.error('Forecast failed:', error);
@@ -902,8 +951,11 @@ setState(prev => ({
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <PiggyBank className="w-6 h-6" />
-                  Optimal Deposit{state.mode === 'joint' ? 's' : ''}
+                  Optimized Deposit{state.mode === 'joint' ? 's' : ''}
                 </CardTitle>
+                <CardDescription>
+                  These amounts are calculated using advanced optimization to minimize deposits while maintaining positive balance.
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -931,13 +983,37 @@ setState(prev => ({
                 <Alert className="mt-4 border-success">
                   <CheckCircle className="w-4 h-4 text-success" />
                   <AlertDescription>
-                    With these deposits, your minimum balance will be{' '}
+                    With these optimized deposits, your minimum balance will be{' '}
                     <strong className="text-success">
                       {formatCurrency(state.forecastResult.minBalance)}
                     </strong>
                     {' '}— staying above zero throughout the forecast period.
                   </AlertDescription>
                 </Alert>
+
+                {/* Bill Movement Suggestions */}
+                {result?.billSuggestions && result.billSuggestions.length > 0 && (
+                  <div className="mt-6">
+                    <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                      <Lightbulb className="w-4 h-4" />
+                      Optimization Suggestions
+                    </h4>
+                    <div className="space-y-2">
+                      {result.billSuggestions.map((suggestion, index) => (
+                        <Alert key={index} className="border-blue-200">
+                          <AlertCircle className="w-4 h-4 text-blue-500" />
+                          <AlertDescription>
+                            <strong>Bill Movement:</strong> {suggestion.reason}
+                            <br />
+                            <span className="text-sm text-muted-foreground">
+                              Move from {suggestion.currentDate} to {suggestion.suggestedDate}
+                            </span>
+                          </AlertDescription>
+                        </Alert>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 

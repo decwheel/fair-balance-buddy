@@ -8,6 +8,7 @@ export type Bill = {
   dueDateISO?: string;       // for one-offs (e.g., predicted electricity)
   isVariable?: boolean;      // electricity etc.
   account: "A" | "B" | "JOINT";
+  movable?: boolean;         // whether the bill can be moved to optimize deposits
 };
 
 export type Transaction = {
@@ -54,6 +55,13 @@ export type SimResult = {
   requiredMonthlyA: number;
   requiredMonthlyB?: number;
   entries: TimelineEntry[];
+  billSuggestions?: Array<{
+    billId: string;
+    currentDate: string;
+    suggestedDate: string;
+    savingsAmount: number;
+    reason: string;
+  }>;
 };
 
 export type RecurringItem = {

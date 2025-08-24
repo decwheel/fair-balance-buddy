@@ -31,11 +31,14 @@ function simulate(inputs: PlanInputs): SimResult {
   // Calculate optimized deposits using the new optimization engine
   const { findOptimalStartDate } = require("../services/optimizationEngine");
   let optimizedDeposits: { monthlyA: number; monthlyB?: number };
+  let billSuggestions: SimResult['billSuggestions'] = [];
   
   try {
     const optimization = findOptimalStartDate(inputs);
     optimizedDeposits = optimization.optimizedDeposits;
+    billSuggestions = optimization.billSuggestions;
   } catch (error) {
+    console.warn("[simulate] Optimization failed, using fallback:", error);
     // Fallback to original values if optimization fails
     optimizedDeposits = {
       monthlyA: inputs.a.netMonthly,
@@ -104,6 +107,7 @@ function simulate(inputs: PlanInputs): SimResult {
     requiredMonthlyA: optimizedDeposits.monthlyA,
     requiredMonthlyB: optimizedDeposits.monthlyB,
     entries,
+    billSuggestions,
   };
 }
 
