@@ -1,4 +1,4 @@
-import { format, addDays, addWeeks, addMonths, isWeekend, nextSaturday, nextSunday } from 'date-fns';
+import { format, addDays, addMonths, isWeekend } from 'date-fns';
 
 export type ISODate = string;
 
@@ -7,32 +7,41 @@ export function calculatePayDates(
   anchorDate: ISODate,
   months: number
 ): ISODate[] {
+  const today = new Date();
   const dates: ISODate[] = [];
-  const anchor = new Date(anchorDate);
-  const endDate = addMonths(anchor, months);
-  
-  let current = anchor;
-  
-  while (current <= endDate) {
-    dates.push(format(current, 'yyyy-MM-dd'));
-    
-    switch (frequency) {
-      case 'WEEKLY':
-        current = addWeeks(current, 1);
-        break;
-      case 'FORTNIGHTLY':
-      case 'BIWEEKLY':
-        current = addWeeks(current, 2);
-        break;
-      case 'FOUR_WEEKLY':
-        current = addWeeks(current, 4);
-        break;
-      case 'MONTHLY':
-        current = addMonths(current, 1);
-        break;
+
+  // Monthly standing orders: first business day of the NEXT month after today
+  if (frequency === 'MONTHLY') {
+    const firstOfNext = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+    for (let i = 0; i < months; i++) {
+      const raw = new Date(firstOfNext.getFullYear(), firstOfNext.getMonth() + i, 1);
+      const iso = format(raw, 'yyyy-MM-dd');
+      dates.push(nextBusinessDay(iso));
     }
+    return dates;
   }
-  
+
+  // Weekly-style schedules: step forward from the last known payday
+  const step =
+    frequency === 'WEEKLY'
+      ? 7
+      : frequency === 'FORTNIGHTLY' || frequency === 'BIWEEKLY'
+        ? 14
+        : 28; // FOUR_WEEKLY
+
+  let current = new Date(anchorDate);
+  // Advance to the first date after today
+  while (current <= today) {
+    current = addDays(current, step);
+  }
+
+  const count = Math.ceil((months * 30) / step);
+  for (let i = 0; i < count; i++) {
+    const iso = format(current, 'yyyy-MM-dd');
+    dates.push(nextBusinessDay(iso));
+    current = addDays(current, step);
+  }
+
   return dates;
 }
 

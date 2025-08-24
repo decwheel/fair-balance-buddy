@@ -29,21 +29,25 @@ export function nextBusinessDayISO(d: Date): string {
  * - monthly: **1st of the following month**, rolled to next business day
  */
 export function payDates(startISO: string, freq: PayFrequency, months = 12): string[] {
+  const today = new Date();
   const start = parseISO(startISO);
   const out: string[] = [];
 
   if (freq === "weekly" || freq === "fortnightly" || freq === "four_weekly") {
     const step = freq === "weekly" ? 7 : freq === "fortnightly" ? 14 : 28;
     let d = start;
-    while (out.length < Math.ceil((months * 30) / step)) {
+    // advance to the first pay date after today
+    while (d <= today) d = addDays(d, step);
+    const count = Math.ceil((months * 30) / step);
+    for (let i = 0; i < count; i++) {
       out.push(formatISO(nextBusinessDay(d), { representation: "date" }));
       d = addDays(d, step);
     }
     return out;
   }
 
-  // ✅ Monthly: fixed standing order on the 1st of NEXT month (then next business day)
-  const firstOfNext = new Date(start.getFullYear(), start.getMonth() + 1, 1);
+  // ✅ Monthly: first business day of the month AFTER today
+  const firstOfNext = new Date(today.getFullYear(), today.getMonth() + 1, 1);
   for (let i = 0; i < months; i++) {
     const raw = new Date(firstOfNext.getFullYear(), firstOfNext.getMonth() + i, 1);
     out.push(formatISO(nextBusinessDay(raw), { representation: "date" }));
