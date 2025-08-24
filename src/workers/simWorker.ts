@@ -12,8 +12,9 @@ import type {
 } from "../types";
 import { payDates } from "../lib/dateUtils";
 import { detectSalaryCandidates, detectRecurringBillsFromTx } from "../lib/recurring";
+import { findOptimalStartDate } from "../services/optimizationEngine";
 
-function perPayFromMonthly(monthly: number, freq: PayFrequency): number {
+function monthlyToPerPay(monthly: number, freq: PayFrequency): number {
   switch (freq) {
     case "weekly":       return monthly * (12 / 52);
     case "fortnightly":  return monthly * (12 / 26);
@@ -29,7 +30,6 @@ function simulate(inputs: PlanInputs): SimResult {
   const entries: TimelineEntry[] = [];
 
   // Calculate optimized deposits using the new optimization engine
-  const { findOptimalStartDate } = require("../services/optimizationEngine");
   let optimizedDeposits: { monthlyA: number; monthlyB?: number };
   let billSuggestions: SimResult['billSuggestions'] = [];
   
@@ -41,15 +41,15 @@ function simulate(inputs: PlanInputs): SimResult {
     console.warn("[simulate] Optimization failed, using fallback:", error);
     // Fallback to original values if optimization fails
     optimizedDeposits = {
-      monthlyA: inputs.a.netMonthly,
-      monthlyB: inputs.b?.netMonthly
+      monthlyA: monthlyToPerPay(inputs.a.netMonthly, inputs.a.freq),
+      monthlyB: inputs.b ? monthlyToPerPay(inputs.b.netMonthly, inputs.b.freq) : undefined,
     };
   }
 
   // Inflows: A (using optimized deposits)
   const aPays = payDates(inputs.a.firstPayISO, inputs.a.freq, months).map((d) => ({
     dateISO: d,
-    delta: perPayFromMonthly(optimizedDeposits.monthlyA, inputs.a.freq),
+    delta: optimizedDeposits.monthlyA,
     label: "Pay A (Optimized)",
     who: "A" as const,
   }));
@@ -59,7 +59,7 @@ function simulate(inputs: PlanInputs): SimResult {
   if (inputs.b && optimizedDeposits.monthlyB) {
     const bPays = payDates(inputs.b.firstPayISO, inputs.b.freq, months).map((d) => ({
       dateISO: d,
-      delta: perPayFromMonthly(optimizedDeposits.monthlyB!, inputs.b!.freq),
+      delta: optimizedDeposits.monthlyB!,
       label: "Pay B (Optimized)",
       who: "B" as const,
     }));
@@ -104,8 +104,8 @@ function simulate(inputs: PlanInputs): SimResult {
   return {
     minBalance: Number.isFinite(minBal) ? minBal : 0,
     endBalance: bal,
-    requiredMonthlyA: optimizedDeposits.monthlyA,
-    requiredMonthlyB: optimizedDeposits.monthlyB,
+    requiredDepositA: optimizedDeposits.monthlyA,
+    requiredDepositB: optimizedDeposits.monthlyB,
     entries,
     billSuggestions,
   };
@@ -113,9 +113,9 @@ function simulate(inputs: PlanInputs): SimResult {
 
 function analyzeTransactions(tx: Transaction[]): { salaries: SalaryCandidate[]; recurring: RecurringItem[] } {
   const salaries = detectSalaryCandidates(tx);
-  const recurring = detectRecurringBillsFromTx(tx);
-  // @ts-ignore (worker console appears under the "Worker" target in DevTools)
-  console.log("[simWorker] analyze:", {
+    const recurring = detectRecurringBillsFromTx(tx);
+    // @ts-expect-error Worker console appears under the "Worker" target in DevTools
+    console.log("[simWorker] analyze:", {
     salaries: salaries.slice(0, 3),
     recurring: recurring.slice(0, 8),
   });

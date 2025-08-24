@@ -353,25 +353,10 @@ setState(prev => ({
       const selectedBills = currentState.bills.filter(b => currentState.includedBillIds.includes(b.id!));
       const allBills = rollForwardPastBills(selectedBills);
 
-      const perPayFromMonthly = (monthly: number, freq: PaySchedule["frequency"]): number => {
-        switch (freq) {
-          case "WEEKLY":
-            return monthly * (12 / 52);
-          case "FORTNIGHTLY":
-          case "BIWEEKLY":
-            return monthly * (12 / 26);
-          case "FOUR_WEEKLY":
-            return monthly * (12 / 13);
-          case "MONTHLY":
-          default:
-            return monthly;
-        }
-      };
-
       if (currentState.mode === 'single') {
         // Use optimized deposits from worker result if available, otherwise use old forecast
         const workerResult = result;
-        const useWorkerOptimization = workerResult && workerResult.requiredMonthlyA;
+        const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
 
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
@@ -380,9 +365,8 @@ setState(prev => ({
             ...currentState.userA.paySchedule!,
             anchorDate: depositAnchor
           };
-          const perPay = perPayFromMonthly(workerResult.requiredMonthlyA, payScheduleWithDepositDate.frequency);
           const forecast = runSingle(
-            perPay,
+            workerResult.requiredDepositA,
             today,
             payScheduleWithDepositDate,
             allBills,
@@ -392,7 +376,7 @@ setState(prev => ({
           setState(prev => ({
             ...prev,
             forecastResult: {
-              depositA: workerResult.requiredMonthlyA,
+              depositA: workerResult.requiredDepositA,
               minBalance: forecast.minBalance,
               timeline: forecast.timeline
             },
@@ -437,7 +421,7 @@ setState(prev => ({
       } else if (currentState.userB?.paySchedule) {
         // Use optimized deposits from worker result if available, otherwise use old forecast
         const workerResult = result;
-        const useWorkerOptimization = workerResult && workerResult.requiredMonthlyA;
+        const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
 
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
@@ -453,12 +437,10 @@ setState(prev => ({
             anchorDate: depositAnchorB
           };
 
-          const perPayA = perPayFromMonthly(workerResult.requiredMonthlyA, payScheduleAWithDepositDate.frequency);
-          const perPayB = perPayFromMonthly(workerResult.requiredMonthlyB || 0, payScheduleBWithDepositDate.frequency);
           const fairnessRatio = 0.55;
           const forecast = runJoint(
-            perPayA,
-            perPayB,
+            workerResult.requiredDepositA,
+            workerResult.requiredDepositB || 0,
             today,
             payScheduleAWithDepositDate,
             payScheduleBWithDepositDate,
@@ -469,8 +451,8 @@ setState(prev => ({
           setState(prev => ({
             ...prev,
             forecastResult: {
-              depositA: workerResult.requiredMonthlyA,
-              depositB: workerResult.requiredMonthlyB || 0,
+              depositA: workerResult.requiredDepositA,
+              depositB: workerResult.requiredDepositB || 0,
               minBalance: forecast.minBalance,
               timeline: forecast.timeline
             },
@@ -1019,16 +1001,29 @@ setState(prev => ({
                   )}
                 </div>
                 
-                <Alert className="mt-4 border-success">
-                  <CheckCircle className="w-4 h-4 text-success" />
-                  <AlertDescription>
-                    With these optimized deposits, your minimum balance will be{' '}
-                    <strong className="text-success">
-                      {formatCurrency(state.forecastResult.minBalance)}
-                    </strong>
-                    {' '}— staying above zero throughout the forecast period.
-                  </AlertDescription>
-                </Alert>
+                {state.forecastResult.minBalance >= 0 ? (
+                  <Alert className="mt-4 border-success">
+                    <CheckCircle className="w-4 h-4 text-success" />
+                    <AlertDescription>
+                      With these optimized deposits, your minimum balance will be{' '}
+                      <strong className="text-success">
+                        {formatCurrency(state.forecastResult.minBalance)}
+                      </strong>
+                      {' '}— staying above zero throughout the forecast period.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <Alert className="mt-4 border-destructive">
+                    <AlertCircle className="w-4 h-4 text-destructive" />
+                    <AlertDescription>
+                      Even with these deposits, your minimum balance will be{' '}
+                      <strong className="text-destructive">
+                        {formatCurrency(state.forecastResult.minBalance)}
+                      </strong>
+                      , so the account would dip below zero.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
                 {/* Bill Movement Suggestions */}
                 {result?.billSuggestions && result.billSuggestions.length > 0 && (
