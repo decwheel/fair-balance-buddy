@@ -393,9 +393,22 @@ setState(prev => ({
         const payScheduleB: PaySchedule = { ...currentState.userB.paySchedule!, anchorDate: startDateB };
         const startDate = startDateA < startDateB ? startDateA : startDateB;
 
+        const toMonthly = (s?: SalaryCandidate) => {
+          if (!s) return 0;
+          switch (s.freq) {
+            case 'weekly': return s.amount * 52 / 12;
+            case 'fortnightly': return s.amount * 26 / 12;
+            case 'four_weekly': return s.amount * 13 / 12;
+            case 'monthly':
+            default: return s.amount;
+          }
+        };
+        const incomeA = toMonthly(topSalary);
+        const incomeB = toMonthly(topSalaryB);
+        const fairnessRatio = incomeA + incomeB > 0 ? incomeA / (incomeA + incomeB) : 0.5;
+
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
-          const fairnessRatio = 0.55;
           const forecast = runJoint(
             workerResult.requiredDepositA,
             workerResult.requiredDepositB || 0,
@@ -420,7 +433,6 @@ setState(prev => ({
         } else {
           // Fallback to original forecast system
           const baselineDeposit = 800;
-          const fairnessRatio = 0.55;
 
           const startDateJoint = startDateA < startDateB ? startDateA : startDateB;
 
