@@ -344,14 +344,15 @@ setState(prev => ({
     }
   };
 
-  const runForecast = () => {
-    if (!state.userA.paySchedule) return;
+  const runForecast = (currentState: AppState = state) => {
+    if (!currentState.userA.paySchedule) return;
 
-    setState(prev => ({ ...prev, isLoading: true }));
+    // Work with the most up-to-date state (e.g. newly added bills)
+    setState({ ...currentState, isLoading: true });
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      const selectedBills = state.bills.filter(b => state.includedBillIds.includes(b.id!));
+      const selectedBills = currentState.bills.filter(b => currentState.includedBillIds.includes(b.id!));
       const allBills = rollForwardPastBills(selectedBills);
 
       const perPayFromMonthly = (monthly: number, freq: PaySchedule["frequency"]): number => {
@@ -369,16 +370,16 @@ setState(prev => ({
         }
       };
 
-      if (state.mode === 'single') {
+      if (currentState.mode === 'single') {
         // Use optimized deposits from worker result if available, otherwise use old forecast
         const workerResult = result;
         const useWorkerOptimization = workerResult && workerResult.requiredMonthlyA;
 
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
-          const depositAnchor = getDepositAnchorDate(state.userA.paySchedule!);
+          const depositAnchor = getDepositAnchorDate(currentState.userA.paySchedule!);
           const payScheduleWithDepositDate: PaySchedule = {
-            ...state.userA.paySchedule!,
+            ...currentState.userA.paySchedule!,
             anchorDate: depositAnchor
           };
           const perPay = perPayFromMonthly(workerResult.requiredMonthlyA, payScheduleWithDepositDate.frequency);
@@ -403,9 +404,9 @@ setState(prev => ({
         } else {
           // Fallback to original forecast system
           const baselineDeposit = 150;
-          const depositAnchor = getDepositAnchorDate(state.userA.paySchedule!);
+          const depositAnchor = getDepositAnchorDate(currentState.userA.paySchedule!);
           const payScheduleWithDepositDate: PaySchedule = {
-            ...state.userA.paySchedule!,
+            ...currentState.userA.paySchedule!,
             anchorDate: depositAnchor
           };
           
@@ -435,22 +436,22 @@ setState(prev => ({
             step: 'results'
           }));
         }
-      } else if (state.userB?.paySchedule) {
+      } else if (currentState.userB?.paySchedule) {
         // Use optimized deposits from worker result if available, otherwise use old forecast
         const workerResult = result;
         const useWorkerOptimization = workerResult && workerResult.requiredMonthlyA;
 
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
-          const depositAnchorA = getDepositAnchorDate(state.userA.paySchedule!);
-          const depositAnchorB = getDepositAnchorDate(state.userB.paySchedule!);
+          const depositAnchorA = getDepositAnchorDate(currentState.userA.paySchedule!);
+          const depositAnchorB = getDepositAnchorDate(currentState.userB.paySchedule!);
 
           const payScheduleAWithDepositDate: PaySchedule = {
-            ...state.userA.paySchedule!,
+            ...currentState.userA.paySchedule!,
             anchorDate: depositAnchorA
           };
           const payScheduleBWithDepositDate: PaySchedule = {
-            ...state.userB.paySchedule!,
+            ...currentState.userB.paySchedule!,
             anchorDate: depositAnchorB
           };
 
@@ -483,15 +484,15 @@ setState(prev => ({
           const baselineDeposit = 800;
           const fairnessRatio = 0.55;
 
-          const depositAnchorA = getDepositAnchorDate(state.userA.paySchedule!);
-          const depositAnchorB = getDepositAnchorDate(state.userB.paySchedule!);
+          const depositAnchorA = getDepositAnchorDate(currentState.userA.paySchedule!);
+          const depositAnchorB = getDepositAnchorDate(currentState.userB.paySchedule!);
           
           const payScheduleAWithDepositDate: PaySchedule = {
-            ...state.userA.paySchedule!,
+            ...currentState.userA.paySchedule!,
             anchorDate: depositAnchorA
           };
           const payScheduleBWithDepositDate: PaySchedule = {
-            ...state.userB.paySchedule!,
+            ...currentState.userB.paySchedule!,
             anchorDate: depositAnchorB
           };
           
@@ -539,13 +540,13 @@ setState(prev => ({
 
     if (billEditing) {
       // Simple edit of a single occurrence
-      setState(prev => ({
-        ...prev,
-        bills: prev.bills.map(b => b.id === billEditing.id ? { ...b, name: values.name, amount: values.amount, dueDate: values.dueDate } : b)
-      }));
+      const updatedBills = state.bills.map(b =>
+        b.id === billEditing.id ? { ...b, name: values.name, amount: values.amount, dueDate: values.dueDate } : b
+      );
+      const newState = { ...state, bills: updatedBills };
       setBillEditing(null);
       toast({ description: 'Bill updated. Recalculating forecast…' });
-      runForecast();
+      runForecast(newState);
       return;
     }
 
@@ -561,12 +562,11 @@ setState(prev => ({
       movable: false,
     }));
 
-    // Update local state
-    setState(prev => ({
-      ...prev,
-      bills: [...prev.bills, ...newBills],
-      includedBillIds: Array.from(new Set([...prev.includedBillIds, ...newBills.map(b => b.id!)]))
-    }));
+    const updatedState: AppState = {
+      ...state,
+      bills: [...state.bills, ...newBills],
+      includedBillIds: Array.from(new Set([...state.includedBillIds, ...newBills.map(b => b.id!)]))
+    };
 
     // Persist to Supabase if authenticated
     persistBills(newBills.map(nb => ({
@@ -597,8 +597,8 @@ setState(prev => ({
       return before.length ? before[before.length - 1] : pays[0];
     })();
 
-    const allBills = [...state.bills, ...newBills].filter(b => state.includedBillIds.includes(b.id!) || newBills.some(nb => nb.id === b.id));
-    if (state.mode === 'single') {
+    const allBills = updatedState.bills.filter(b => updatedState.includedBillIds.includes(b.id!));
+    if (updatedState.mode === 'single') {
       const baseline = 150;
       const dep = findDepositSingle(startDate, state.userA.paySchedule!, allBills, baseline);
       toast({ description: `From ${startDate}, set your deposit to ${formatCurrency(dep)} to stay above zero.` });
@@ -610,7 +610,7 @@ setState(prev => ({
     }
 
     // Re-run forecast with updated bills
-    runForecast();
+    runForecast(updatedState);
   };
 
   return (
@@ -975,8 +975,8 @@ setState(prev => ({
                 );
               })()}
 
-              <Button 
-                onClick={runForecast} 
+              <Button
+                onClick={() => runForecast()}
                 disabled={state.isLoading}
                 className="w-full deposit-highlight"
               >
