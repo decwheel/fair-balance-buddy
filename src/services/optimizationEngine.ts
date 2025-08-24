@@ -160,6 +160,8 @@ function runSingleSimple(
   // Generate pay dates for 12 months
   const frequency = pay.frequency.toLowerCase() as PayFrequency;
   const payDatesArr = payDates(pay.anchorDate, frequency, 12);
+  const firstDeposit = payDatesArr.find(d => d >= startDate) || payDatesArr[0];
+  const simStart = firstDeposit;
   
   // Create events
   const events: Array<{ date: string; amount: number; description: string }> = [];
@@ -177,10 +179,10 @@ function runSingleSimple(
   // Sort and process events
   events.sort((a, b) => a.date.localeCompare(b.date));
   
-  timeline.push({ date: startDate, balance });
-  
+  timeline.push({ date: simStart, balance });
+
   events.forEach(event => {
-    if (event.date >= startDate) {
+    if (event.date >= simStart) {
       balance += event.amount;
       timeline.push({ date: event.date, balance, event: event.description });
       if (balance < minBalance) minBalance = balance;
@@ -208,6 +210,9 @@ function runJointSimple(
   const freqB = payB.frequency.toLowerCase() as PayFrequency;
   const payDatesA = payDates(payA.anchorDate, freqA, 12);
   const payDatesB = payDates(payB.anchorDate, freqB, 12);
+  const firstA = payDatesA.find(d => d >= startDate) || payDatesA[0];
+  const firstB = payDatesB.find(d => d >= startDate) || payDatesB[0];
+  const simStart = firstA < firstB ? firstA : firstB;
   
   // Create events
   const events: Array<{ date: string; amount: number; description: string }> = [];
@@ -230,10 +235,10 @@ function runJointSimple(
   // Sort and process events
   events.sort((a, b) => a.date.localeCompare(b.date));
   
-  timeline.push({ date: startDate, balance });
-  
+  timeline.push({ date: simStart, balance });
+
   events.forEach(event => {
-    if (event.date >= startDate) {
+    if (event.date >= simStart) {
       balance += event.amount;
       timeline.push({ date: event.date, balance, event: event.description });
       if (balance < minBalance) minBalance = balance;
@@ -276,13 +281,16 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
           movable: true
         }));
         
-        const optimalDeposit = findDepositSingleSimple(testDate, payScheduleA, bills, inputs.minBalance);
-        const result = runSingleSimple(optimalDeposit, testDate, payScheduleA, bills, { baseline: inputs.minBalance });
+        const payDatesA = payDates(payScheduleA.anchorDate, mapFrequency(inputs.a.freq), 12);
+        const alignedStart = payDatesA.find(d => d >= testDate) || payDatesA[0];
+
+        const optimalDeposit = findDepositSingleSimple(alignedStart, payScheduleA, bills, inputs.minBalance);
+        const result = runSingleSimple(optimalDeposit, alignedStart, payScheduleA, bills, { baseline: inputs.minBalance });
 
         const monthlyDeposit = optimalDeposit * cyclesPerMonth(payScheduleA.frequency);
 
         scenarios.push({
-          startDate: testDate,
+          startDate: alignedStart,
           deposits: { monthlyA: optimalDeposit }, // per-pay deposit
           minBalance: result.minBalance,
           totalDeposits: monthlyDeposit,
@@ -314,8 +322,14 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
           ? inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b)
           : 0.5;
           
+        const payDatesA = payDates(payScheduleA.anchorDate, mapFrequency(inputs.a.freq), 12);
+        const payDatesB = payDates(payScheduleB.anchorDate, mapFrequency(inputs.b.freq), 12);
+        const firstA = payDatesA.find(d => d >= testDate) || payDatesA[0];
+        const firstB = payDatesB.find(d => d >= testDate) || payDatesB[0];
+        const alignedStart = firstA < firstB ? firstA : firstB;
+
         const { depositA, depositB } = findDepositJointSimple(
-          testDate,
+          alignedStart,
           payScheduleA,
           payScheduleB,
           bills,
@@ -326,7 +340,7 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
         const result = runJointSimple(
           depositA,
           depositB,
-          testDate,
+          alignedStart,
           payScheduleA,
           payScheduleB,
           bills,
@@ -337,7 +351,7 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
         const monthlyB = depositB * cyclesPerMonth(payScheduleB.frequency);
 
         scenarios.push({
-          startDate: testDate,
+          startDate: alignedStart,
           deposits: { monthlyA: depositA, monthlyB: depositB }, // per-pay deposits
           minBalance: result.minBalance,
           totalDeposits: monthlyA + monthlyB,

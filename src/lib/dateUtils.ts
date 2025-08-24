@@ -26,7 +26,7 @@ export function nextBusinessDayISO(d: Date): string {
 /**
  * Generate pay dates.
  * - weekly/fortnightly/four_weekly: step forward from start date
- * - monthly: **1st of the following month**, rolled to next business day
+ * - monthly: advance one month at a time from the provided start date
  */
 export function payDates(startISO: string, freq: PayFrequency, months = 12): string[] {
   const today = new Date();
@@ -46,10 +46,11 @@ export function payDates(startISO: string, freq: PayFrequency, months = 12): str
     return out;
   }
 
-  // ✅ Monthly: first business day of the month AFTER today
-  const firstOfNext = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  // Monthly: step forward one month at a time from the anchor date
+  let d = start;
+  while (d <= today) d = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate());
   for (let i = 0; i < months; i++) {
-    const raw = new Date(firstOfNext.getFullYear(), firstOfNext.getMonth() + i, 1);
+    const raw = new Date(d.getFullYear(), d.getMonth() + i, d.getDate());
     out.push(formatISO(nextBusinessDay(raw), { representation: "date" }));
   }
   return out;
