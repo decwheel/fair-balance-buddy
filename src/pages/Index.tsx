@@ -324,7 +324,12 @@ setState(prev => ({
 
     try {
       const selectedBills = currentState.bills.filter(b => currentState.includedBillIds.includes(b.id!));
-      const allBills = rollForwardPastBills(selectedBills);
+      const firstPayDate = currentState.userB?.paySchedule
+        ? (currentState.userA.paySchedule!.anchorDate < currentState.userB.paySchedule.anchorDate
+            ? currentState.userA.paySchedule!.anchorDate
+            : currentState.userB.paySchedule.anchorDate)
+        : currentState.userA.paySchedule!.anchorDate;
+      const allBills = rollForwardPastBills(selectedBills, firstPayDate);
 
       const startDateA = getStartDate(currentState.userA.paySchedule!, allBills);
       const payScheduleA: PaySchedule = { ...currentState.userA.paySchedule!, anchorDate: startDateA };
