@@ -401,16 +401,36 @@ setState(prev => ({
         const toMonthly = (s?: SalaryCandidate) => {
           if (!s) return 0;
           switch (s.freq) {
-            case 'weekly': return s.amount * 52 / 12;
-            case 'fortnightly': return s.amount * 26 / 12;
-            case 'four_weekly': return s.amount * 13 / 12;
+            case 'weekly':
+              return (s.amount * 52) / 12;
+            case 'fortnightly':
+              return (s.amount * 26) / 12;
+            case 'four_weekly':
+              return (s.amount * 13) / 12;
             case 'monthly':
-            default: return s.amount;
+            default:
+              return s.amount;
           }
         };
-        const incomeA = toMonthly(topSalary);
-        const incomeB = toMonthly(topSalaryB);
-        const fairnessRatio = incomeA + incomeB > 0 ? incomeA / (incomeA + incomeB) : 0.5;
+        const toMonthlySchedule = (ps?: PaySchedule) => {
+          if (!ps || !ps.averageAmount) return 0;
+          switch (ps.frequency) {
+            case 'WEEKLY':
+              return (ps.averageAmount * 52) / 12;
+            case 'FORTNIGHTLY':
+            case 'BIWEEKLY':
+              return (ps.averageAmount * 26) / 12;
+            case 'FOUR_WEEKLY':
+              return (ps.averageAmount * 13) / 12;
+            case 'MONTHLY':
+            default:
+              return ps.averageAmount;
+          }
+        };
+        const incomeA = toMonthly(topSalary) || toMonthlySchedule(payScheduleA);
+        const incomeB = toMonthly(topSalaryB) || toMonthlySchedule(payScheduleB);
+        const fairnessRatio =
+          incomeA + incomeB > 0 ? incomeA / (incomeA + incomeB) : 0.5;
 
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
