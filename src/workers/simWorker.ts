@@ -62,24 +62,7 @@ function simulate(inputs: PlanInputs): SimResult {
   for (const e of inputs.elecPredicted ?? []) {
     if (e.dueDateISO) entries.push({ dateISO: e.dueDateISO, delta: -e.amount, label: e.name, who: "JOINT" });
   }
-  for (const p of inputs.pots ?? []) {
-    // Distribute pot contributions based on fairness ratio
-    const fairnessRatio = inputs.fairnessRatio 
-      ? inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b)
-      : (inputs.b ? 0.5 : 1);
-      
-    if (p.owner === "JOINT") {
-      const potA = p.monthly * fairnessRatio;
-      const potB = p.monthly * (1 - fairnessRatio);
-      
-      entries.push({ dateISO: inputs.startISO, delta: -potA, label: `${p.name} (A's share)`, who: "A" });
-      if (inputs.b) {
-        entries.push({ dateISO: inputs.startISO, delta: -potB, label: `${p.name} (B's share)`, who: "B" });
-      }
-    } else {
-      entries.push({ dateISO: inputs.startISO, delta: -p.monthly, label: `Pot: ${p.name}`, who: p.owner });
-    }
-  }
+  // Pot contributions are handled in income adjustments before forecasting
 
   entries.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
 

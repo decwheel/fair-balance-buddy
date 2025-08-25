@@ -24,6 +24,7 @@ import { loadMockTransactionsA, loadMockTransactionsB, categorizeBankTransaction
 import { EsbReading } from '@/services/esbCsv';
 import { TariffRates } from '@/services/billPdf';
 import { Bill, PaySchedule, findDepositSingle, findDepositJoint, runSingle, runJoint } from '@/services/forecastAdapters';
+import { generateBillSuggestions } from '@/services/optimizationEngine';
 import { formatCurrency, calculatePayDates } from '@/utils/dateUtils';
 import { predictBills, ElectricityMode } from '@/services/electricityPredictors';
 import { Calendar as DayPicker } from '@/components/ui/calendar';
@@ -35,7 +36,7 @@ import { BillEditorDialog, BillFrequency } from '@/components/bills/BillEditorDi
 import { generateOccurrences } from '@/utils/recurrence';
 import { persistBills } from '@/services/supabaseBills';
 import { rollForwardPastBills } from '@/utils/billUtils';
-import type { RecurringItem, SalaryCandidate } from '@/types';
+import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 
 // UI metadata used to render the Pattern column (keep anchor, drop "last …")
@@ -71,6 +72,9 @@ interface AppState {
   step: 'setup' | 'bank' | 'energy' | 'forecast' | 'results';
   selectedDate: string | null; // for calendar selection
   electricityMode: ElectricityMode;
+  pots: SavingsPot[];
+  weeklyAllowanceA: number;
+  weeklyAllowanceB: number;
 }
 
 const Index = () => {
@@ -86,13 +90,19 @@ const [state, setState] = useState<AppState>({
   isLoading: false,
   step: 'setup',
   selectedDate: null,
-  electricityMode: 'csv'
+  electricityMode: 'csv',
+  pots: [],
+  weeklyAllowanceA: 100,
+  weeklyAllowanceB: 100
 });
 
   const [billDialogOpen, setBillDialogOpen] = useState(false);
   const [billEditing, setBillEditing] = useState<Bill | null>(null);
   const { toast } = useToast();
   const [recurringMeta, setRecurringMeta] = useState<RecurringMeta>({});
+  const [newPotName, setNewPotName] = useState('');
+  const [newPotAmount, setNewPotAmount] = useState<number>(0);
+  const [newPotOwner, setNewPotOwner] = useState<'A' | 'B' | 'JOINT'>('A');
 
   // 🔌 NEW: read worker detections (salary + recurring) from the store
   const { detected, inputs, result } = usePlanStore();
@@ -339,56 +349,58 @@ setState(prev => ({
         const workerResult = result;
         const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
 
+        let depositA: number;
+        let resultObj: { minBalance: number; timeline: any };
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
-          const forecast = runSingle(
-            workerResult.requiredDepositA,
+          depositA = workerResult.requiredDepositA;
+          resultObj = runSingle(
+            depositA,
             startDateA,
             payScheduleA,
             allBills,
             { months: 12, buffer: 0 }
           );
-
-          setState(prev => ({
-            ...prev,
-            forecastResult: {
-              depositA: workerResult.requiredDepositA,
-              minBalance: forecast.minBalance,
-              timeline: forecast.timeline
-            },
-            isLoading: false,
-            step: 'results'
-          }));
         } else {
           // Fallback to original forecast system
           const baselineDeposit = 150;
-
-          const optimalDeposit = findDepositSingle(
+          depositA = findDepositSingle(
             startDateA,
             payScheduleA,
             allBills,
             baselineDeposit
           );
-
-          const result = runSingle(
-            optimalDeposit,
+          resultObj = runSingle(
+            depositA,
             startDateA,
             payScheduleA,
             allBills,
             { months: 12, buffer: 0 }
           );
-
-          setState(prev => ({
-            ...prev,
-            forecastResult: {
-              depositA: optimalDeposit,
-              minBalance: result.minBalance,
-              timeline: result.timeline
-            },
-            isLoading: false,
-            step: 'results'
-          }));
         }
+
+        // Generate bill move suggestions to lower deposits
+        let suggestions: SimResult['billSuggestions'] = [];
+        try {
+          suggestions = generateBillSuggestions(inputs as PlanInputs, { monthlyA: depositA }, resultObj.minBalance);
+        } catch (e) {
+          console.warn('Bill suggestions generation failed:', e);
+        }
+        usePlanStore.getState().setResult({
+          ...usePlanStore.getState().result,
+          billSuggestions: suggestions
+        });
+
+        setState(prev => ({
+          ...prev,
+          forecastResult: {
+            depositA,
+            minBalance: resultObj.minBalance,
+            timeline: resultObj.timeline
+          },
+          isLoading: false,
+          step: 'results'
+        }));
       } else if (currentState.userB?.paySchedule) {
         // Use optimized deposits from worker result if available, otherwise use old forecast
         const workerResult = result;
@@ -396,7 +408,8 @@ setState(prev => ({
 
         const startDateB = getStartDate(currentState.userB.paySchedule!, allBills);
         const payScheduleB: PaySchedule = { ...currentState.userB.paySchedule!, anchorDate: startDateB };
-        const startDate = startDateA < startDateB ? startDateA : startDateB;
+        // Use the earliest upcoming pay date between A and B as joint start
+        const startDate = (startDateA <= startDateB) ? startDateA : startDateB;
 
         const toMonthly = (s?: SalaryCandidate) => {
           if (!s) return 0;
@@ -429,48 +442,62 @@ setState(prev => ({
         };
         const incomeA = toMonthly(topSalary) || toMonthlySchedule(payScheduleA);
         const incomeB = toMonthly(topSalaryB) || toMonthlySchedule(payScheduleB);
-        const fairnessRatio =
-          incomeA + incomeB > 0 ? incomeA / (incomeA + incomeB) : 0.5;
+        // Deduct weekly allowances (converted to monthly)
+        const allowanceMonthlyA = currentState.weeklyAllowanceA * 52 / 12;
+        const allowanceMonthlyB = currentState.weeklyAllowanceB * 52 / 12;
+        let incomeA_adj = incomeA - allowanceMonthlyA;
+        let incomeB_adj = incomeB - allowanceMonthlyB;
+        // Subtract personal pot contributions
+        const totalPotsA = currentState.pots
+          .filter(p => p.owner === 'A')
+          .reduce((sum, p) => sum + p.monthly, 0);
+        const totalPotsB = currentState.pots
+          .filter(p => p.owner === 'B')
+          .reduce((sum, p) => sum + p.monthly, 0);
+        // Preliminary ratio for joint-owned pots
+        let preliminaryRatio = incomeA_adj + incomeB_adj > 0 ? incomeA_adj / (incomeA_adj + incomeB_adj) : 0.5;
+        const totalJointPot = currentState.pots
+          .filter(p => p.owner === 'JOINT')
+          .reduce((sum, p) => sum + p.monthly, 0);
+        const jointShareA = totalJointPot * preliminaryRatio;
+        const jointShareB = totalJointPot * (1 - preliminaryRatio);
+        const effIncomeA = incomeA_adj - totalPotsA - jointShareA;
+        const effIncomeB = incomeB_adj - totalPotsB - jointShareB;
+        // Recompute fairness ratio from effective incomes
+        const fairnessRatio = effIncomeA + effIncomeB > 0
+          ? effIncomeA / (effIncomeA + effIncomeB)
+          : 0.5;
 
+        let depositA: number;
+        let depositB: number | undefined;
+        let result: { minBalance: number; timeline: any };
         if (useWorkerOptimization) {
           // Use worker's optimized deposits but generate timeline with bills
-          const forecast = runJoint(
-            workerResult.requiredDepositA,
-            workerResult.requiredDepositB || 0,
+          depositA = workerResult.requiredDepositA;
+          depositB = workerResult.requiredDepositB || 0;
+          result = runJoint(
+            depositA,
+            depositB,
             startDate,
             payScheduleA,
             payScheduleB,
             allBills,
             { months: 12, fairnessRatioA: fairnessRatio }
           );
-
-          setState(prev => ({
-            ...prev,
-            forecastResult: {
-              depositA: workerResult.requiredDepositA,
-              depositB: workerResult.requiredDepositB || 0,
-              minBalance: forecast.minBalance,
-              timeline: forecast.timeline
-            },
-            isLoading: false,
-            step: 'results'
-          }));
         } else {
-          // Fallback to original forecast system
-          const baselineDeposit = 800;
-
-          const startDateJoint = startDateA < startDateB ? startDateA : startDateB;
-
-          const { depositA, depositB } = findDepositJoint(
+          // Compute joint deposits with correct fairness ratio
+          const startDateJoint = startDate;
+          const deposits = findDepositJoint(
             startDateJoint,
             payScheduleA,
             payScheduleB,
             allBills,
             fairnessRatio,
-            baselineDeposit
+            0
           );
-
-          const result = runJoint(
+          depositA = deposits.depositA;
+          depositB = deposits.depositB;
+          result = runJoint(
             depositA,
             depositB,
             startDateJoint,
@@ -479,19 +506,31 @@ setState(prev => ({
             allBills,
             { months: 12, fairnessRatioA: fairnessRatio }
           );
-
-          setState(prev => ({
-            ...prev,
-            forecastResult: {
-              depositA,
-              depositB,
-              minBalance: result.minBalance,
-              timeline: result.timeline
-            },
-            isLoading: false,
-            step: 'results'
-          }));
         }
+
+        // Generate bill move suggestions to lower deposits
+        let suggestions: SimResult['billSuggestions'] = [];
+        try {
+          suggestions = generateBillSuggestions(inputs as PlanInputs, { monthlyA: depositA, monthlyB: depositB }, result.minBalance);
+        } catch (e) {
+          console.warn('Bill suggestions generation failed:', e);
+        }
+        usePlanStore.getState().setResult({
+          ...usePlanStore.getState().result,
+          billSuggestions: suggestions
+        });
+
+        setState(prev => ({
+          ...prev,
+          forecastResult: {
+            depositA,
+            depositB,
+            minBalance: result.minBalance,
+            timeline: result.timeline
+          },
+          isLoading: false,
+          step: 'results'
+        }));
       }
     } catch (error) {
       console.error('Forecast failed:', error);
@@ -577,6 +616,16 @@ setState(prev => ({
     // Re-run forecast with updated bills
     runForecast(updatedState);
   };
+
+  function handleAddPot(potName: string, monthlyAmount: number, owner: 'A'|'B'|'JOINT') {
+    const potId = (globalThis.crypto && 'randomUUID' in globalThis.crypto)
+      ? (globalThis.crypto as any).randomUUID()
+      : `pot_${Date.now()}`;
+    setState(prev => ({
+      ...prev,
+      pots: [...prev.pots, { id: potId, name: potName, monthly: monthlyAmount, owner }]
+    }));
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-secondary/20">
@@ -893,6 +942,93 @@ setState(prev => ({
                   </Badge>
                 </div>
               </div>
+
+              <Card className="mb-4">
+                <CardContent>
+                  <h4 className="text-sm font-medium">Weekly Spending Allowance</h4>
+                  {state.mode === 'joint' ? (
+                    <div className="flex gap-4">
+                      <div>
+                        <label className="text-sm">Person A Allowance (€ per week)</label>
+                        <Input
+                          type="number"
+                          value={state.weeklyAllowanceA}
+                          onChange={e => setState(prev => ({ ...prev, weeklyAllowanceA: parseFloat(e.target.value) || 0 }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm">Person B Allowance (€ per week)</label>
+                        <Input
+                          type="number"
+                          value={state.weeklyAllowanceB}
+                          onChange={e => setState(prev => ({ ...prev, weeklyAllowanceB: parseFloat(e.target.value) || 0 }))}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="text-sm">Your Weekly Allowance</label>
+                      <Input
+                        type="number"
+                        value={state.weeklyAllowanceA}
+                        onChange={e => setState(prev => ({ ...prev, weeklyAllowanceA: parseFloat(e.target.value) || 0 }))}
+                      />
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    (This amount will be kept in your personal account each pay period and not used for bills.)
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="mb-4">
+                <CardContent>
+                  <h4 className="text-sm font-medium mb-2">Savings Pots</h4>
+                  <div className="flex flex-wrap gap-2 items-end mb-2">
+                    <Input
+                      placeholder="Pot name"
+                      value={newPotName}
+                      onChange={e => setNewPotName(e.target.value)}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Monthly amount"
+                      className="w-32"
+                      value={newPotAmount}
+                      onChange={e => setNewPotAmount(parseFloat(e.target.value) || 0)}
+                    />
+                    {state.mode === 'joint' && (
+                      <select
+                        className="border rounded px-2 py-1"
+                        value={newPotOwner}
+                        onChange={e => setNewPotOwner(e.target.value as 'A' | 'B' | 'JOINT')}
+                      >
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="JOINT">Joint</option>
+                      </select>
+                    )}
+                    <Button
+                      onClick={() => {
+                        handleAddPot(newPotName, newPotAmount, state.mode === 'joint' ? newPotOwner : 'A');
+                        setNewPotName('');
+                        setNewPotAmount(0);
+                      }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  {state.pots.length > 0 && (
+                    <ul className="mt-2 list-disc pl-5 space-y-1">
+                      {state.pots.map(p => (
+                        <li key={p.id} className="text-sm">
+                          {p.name}: {formatCurrency(p.monthly)} ({p.owner})
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* Electricity Forecast Details */}
               {(() => {
