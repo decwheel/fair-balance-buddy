@@ -38,6 +38,12 @@ export interface ForecastResult {
   timeline: Array<{ date: ISODate; balance: number; event?: string }>;
 }
 
+function monthsBetween(start: ISODate, end: ISODate): number {
+  const s = new Date(start);
+  const e = new Date(end);
+  return (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()) + 1;
+}
+
 export function runSingle(
   depositPerCycle: number,
   startDate: ISODate,
@@ -115,9 +121,17 @@ export function findDepositSingle(
   bills: Bill[],
   _baseline: number
 ): number {
-  // Step 4: total monthly bills (assumes 12-month horizon)
-  const total = bills.reduce((s, b) => s + b.amount, 0);
-  const monthlyBills = total / 12;
+  // Step 4: total monthly bills
+  // In our application each bill amount already represents a monthly value.
+  // For one-off bills (e.g. predicted electricity) convert the amount to a
+  // monthly average based on the period it covers.
+  const monthlyBills = bills.reduce((sum, bill) => {
+    if (bill.source === 'predicted-electricity' && bill.issueDate && bill.dueDate) {
+      const months = monthsBetween(bill.issueDate, bill.dueDate);
+      return sum + (months > 0 ? bill.amount / months : bill.amount);
+    }
+    return sum + bill.amount; // amounts for recurring bills are already monthly
+  }, 0);
 
   // Step 6: convert monthly share to per-pay deposit
   const cycles =
@@ -164,9 +178,14 @@ export function findDepositJoint(
   const cyclesA = cycles(payA.frequency);
   const cyclesB = cycles(payB.frequency);
 
-  // Step 4: monthly bills total
-  const total = bills.reduce((s, b) => s + b.amount, 0);
-  const monthlyBills = total / 12;
+  // Step 4: monthly bills total (convert electricity to monthly average)
+  const monthlyBills = bills.reduce((sum, bill) => {
+    if (bill.source === 'predicted-electricity' && bill.issueDate && bill.dueDate) {
+      const months = monthsBetween(bill.issueDate, bill.dueDate);
+      return sum + (months > 0 ? bill.amount / months : bill.amount);
+    }
+    return sum + bill.amount;
+  }, 0);
 
   // Step 5/6: split by wage ratio then convert to per-pay deposits
   let depA = (monthlyBills * fairnessRatioA) / cyclesA;
