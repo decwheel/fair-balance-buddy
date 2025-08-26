@@ -1,3 +1,5 @@
+import { addDaysISO, nextBusinessDay } from '@/utils/dateUtils';
+
 export interface Transaction {
   id: string;
   date: string; // ISO date string
@@ -99,7 +101,7 @@ export function extractPayScheduleFromWages(wages: Transaction[]): {
 
   // Sort by date
   const sortedWages = [...wages].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  
+
   // Calculate average interval between pay dates
   const intervals: number[] = [];
   for (let i = 1; i < sortedWages.length; i++) {
@@ -120,9 +122,29 @@ export function extractPayScheduleFromWages(wages: Transaction[]): {
   else if (avgInterval <= 27) frequency = 'FOUR_WEEKLY';
   else frequency = 'MONTHLY';
 
+  // Determine next deposit date after today
+  const lastDate = sortedWages[sortedWages.length - 1].date;
+  const todayISO = new Date().toISOString().slice(0, 10);
+  let anchorDate: string;
+
+  if (frequency === 'MONTHLY') {
+    const today = new Date(todayISO);
+    const nextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
+    anchorDate = nextBusinessDay(nextMonth.toISOString().slice(0, 10));
+  } else {
+    const step =
+      frequency === 'WEEKLY' ? 7 :
+      frequency === 'FOUR_WEEKLY' ? 28 : 14; // FORTNIGHTLY/BIWEEKLY default 14
+    let next = lastDate;
+    while (next <= todayISO) {
+      next = addDaysISO(next, step);
+    }
+    anchorDate = nextBusinessDay(next);
+  }
+
   return {
     frequency,
-    anchorDate: sortedWages[sortedWages.length - 1].date, // Last pay date as anchor
+    anchorDate,
     averageAmount
   };
 }
