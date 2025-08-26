@@ -423,8 +423,8 @@ const [state, setState] = useState<AppState>({
         // Use the earliest upcoming pay date between A and B as joint start
         const startDate = startDateA <= startDateB ? startDateA : startDateB;
 
-        const toMonthly = (s?: SalaryCandidate) => {
-          if (!s) return 0;
+        const toMonthly = (s?: SalaryCandidate): number | undefined => {
+          if (!s) return undefined;
           switch (s.freq) {
             case 'weekly':
               return (s.amount * 52) / 12;
