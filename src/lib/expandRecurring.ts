@@ -4,36 +4,40 @@ import type { RecurringItem } from "../types";
 /* Local helpers to avoid cross-file churn */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
 const addDays = (iso: string, n: number) => {
-  const d = new Date(iso + "T00:00:00");
-  d.setDate(d.getDate() + n);
+  const [y, m, d0] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, d0));
+  d.setUTCDate(d.getUTCDate() + n);
   return toISO(d);
 };
 const addMonths = (iso: string, n: number) => {
-  const d = new Date(iso + "T00:00:00");
-  d.setMonth(d.getMonth() + n);
+  const [y, m, d0] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, d0));
+  d.setUTCMonth(d.getUTCMonth() + n);
   return toISO(d);
 };
 
 /** Next date on/after 'fromISO' that matches weekday (0=Sun..6=Sat). */
 function nextDOWOnOrAfter(fromISO: string, dow: number): string {
-  const d = new Date(fromISO + "T00:00:00");
-  const delta = (dow - d.getDay() + 7) % 7;
+  const [y, m, d0] = fromISO.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1, d0));
+  const delta = (dow - d.getUTCDay() + 7) % 7;
   return addDays(fromISO, delta);
 }
 
 /** Next monthly due date (1..31) on/after 'fromISO' (clamps to month end). */
 function nextMonthlyOnOrAfter(fromISO: string, dueDay: number): string {
-  const base = new Date(fromISO + "T00:00:00");
-  const year = base.getFullYear();
-  const month = base.getMonth();
-  const lastDayThisMonth = new Date(year, month + 1, 0).getDate();
+  const [y, m, d0] = fromISO.split("-").map(Number);
+  const base = new Date(Date.UTC(y, m - 1, d0));
+  const year = base.getUTCFullYear();
+  const month = base.getUTCMonth();
+  const lastDayThisMonth = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
   const inThisMonth = Math.min(dueDay, lastDayThisMonth);
-  const candidateThis = new Date(year, month, inThisMonth);
+  const candidateThis = new Date(Date.UTC(year, month, inThisMonth));
   if (candidateThis >= base) return toISO(candidateThis);
-  const next = new Date(year, month + 1, 1);
-  const lastDayNext = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  const next = new Date(Date.UTC(year, month + 1, 1));
+  const lastDayNext = new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth() + 1, 0)).getUTCDate();
   const inNextMonth = Math.min(dueDay, lastDayNext);
-  return toISO(new Date(next.getFullYear(), next.getMonth(), inNextMonth));
+  return toISO(new Date(Date.UTC(next.getUTCFullYear(), next.getUTCMonth(), inNextMonth)));
 }
 
 /** Expand one recurring item into Bills between [startISO, startISO + months] inclusive. */

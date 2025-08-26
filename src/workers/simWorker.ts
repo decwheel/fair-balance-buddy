@@ -14,7 +14,8 @@ import { generateBillSuggestions } from "../services/optimizationEngine";
 
 // Minimal non-blocking skeleton.
 function simulate(inputs: PlanInputs): SimResult {
-  const allBills = [...(inputs.bills ?? []), ...(inputs.elecPredicted ?? [])];
+  const allBillsRaw = [...(inputs.bills ?? []), ...(inputs.elecPredicted ?? [])];
+  const allBills = allBillsRaw.filter(b => !b.dueDate || b.dueDate >= inputs.startISO);
   const payScheduleA = { frequency: inputs.a.freq.toUpperCase(), anchorDate: inputs.a.firstPayISO } as const;
 
   if (inputs.b) {
