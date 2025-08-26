@@ -17,6 +17,7 @@ export interface Bill {
 export interface PaySchedule {
   frequency: "WEEKLY"|"FORTNIGHTLY"|"MONTHLY"|"BIWEEKLY"|"FOUR_WEEKLY";
   anchorDate: ISODate;     // first known payday or next payday
+  averageAmount?: number;  // optional, per-occur wage amount
 }
 
 export interface RunSingleOptions {
@@ -121,17 +122,16 @@ export function findDepositSingle(
   bills: Bill[],
   _baseline: number
 ): number {
-  // Step 4: total monthly bills
-  // In our application each bill amount already represents a monthly value.
-  // For one-off bills (e.g. predicted electricity) convert the amount to a
-  // monthly average based on the period it covers.
-  const monthlyBills = bills.reduce((sum, bill) => {
-    if (bill.source === 'predicted-electricity' && bill.issueDate && bill.dueDate) {
-      const months = monthsBetween(bill.issueDate, bill.dueDate);
-      return sum + (months > 0 ? bill.amount / months : bill.amount);
-    }
-    return sum + bill.amount; // amounts for recurring bills are already monthly
-  }, 0);
+  // Step 4: total bill amount across the forecast window
+  const total = bills.reduce((sum, bill) => sum + bill.amount, 0);
+
+  // Derive a monthly average from the span of bill due dates. This guards
+  // against passing a full year of expanded occurrences (which would otherwise
+  // over-count by 12x).
+  const firstDue = bills.reduce((min, b) => (b.dueDate < min ? b.dueDate : min), bills[0]?.dueDate ?? startDate);
+  const lastDue = bills.reduce((max, b) => (b.dueDate > max ? b.dueDate : max), bills[0]?.dueDate ?? startDate);
+  const monthsSpan = monthsBetween(firstDue, lastDue);
+  const monthlyBills = monthsSpan > 0 ? total / monthsSpan : total;
 
   // Step 6: convert monthly share to per-pay deposit
   const cycles =
@@ -178,14 +178,12 @@ export function findDepositJoint(
   const cyclesA = cycles(payA.frequency);
   const cyclesB = cycles(payB.frequency);
 
-  // Step 4: monthly bills total (convert electricity to monthly average)
-  const monthlyBills = bills.reduce((sum, bill) => {
-    if (bill.source === 'predicted-electricity' && bill.issueDate && bill.dueDate) {
-      const months = monthsBetween(bill.issueDate, bill.dueDate);
-      return sum + (months > 0 ? bill.amount / months : bill.amount);
-    }
-    return sum + bill.amount;
-  }, 0);
+  // Step 4: total bill amount across the window and derive a monthly average
+  const total = bills.reduce((sum, bill) => sum + bill.amount, 0);
+  const firstDue = bills.reduce((min, b) => (b.dueDate < min ? b.dueDate : min), bills[0]?.dueDate ?? startDate);
+  const lastDue = bills.reduce((max, b) => (b.dueDate > max ? b.dueDate : max), bills[0]?.dueDate ?? startDate);
+  const monthsSpan = monthsBetween(firstDue, lastDue);
+  const monthlyBills = monthsSpan > 0 ? total / monthsSpan : total;
 
   // Step 5/6: split by wage ratio then convert to per-pay deposits
   let depA = (monthlyBills * fairnessRatioA) / cyclesA;
