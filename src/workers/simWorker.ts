@@ -12,6 +12,7 @@ import type {
 import { payDates } from "../lib/dateUtils";
 import { detectSalaryCandidates, detectRecurringBillsFromTx } from "../lib/recurring";
 import { findDepositSingle, findDepositJoint } from "../services/forecastAdapters";
+import { generateBillSuggestions } from "../services/optimizationEngine";
 
 // Minimal non-blocking skeleton.
 function simulate(inputs: PlanInputs): SimResult {
@@ -20,7 +21,6 @@ function simulate(inputs: PlanInputs): SimResult {
 
   // Calculate deposits using ratio-based method
   let optimizedDeposits: { monthlyA: number; monthlyB?: number };
-  const billSuggestions: SimResult['billSuggestions'] = [];
 
   const allBills = [...(inputs.bills ?? []), ...(inputs.elecPredicted ?? [])];
   const payScheduleA = { frequency: inputs.a.freq.toUpperCase(), anchorDate: inputs.a.firstPayISO } as const;
@@ -72,9 +72,21 @@ function simulate(inputs: PlanInputs): SimResult {
     bal += it.delta;
     if (bal < minBal) minBal = bal;
   }
+  const minBalance = Number.isFinite(minBal) ? minBal : 0;
+
+  let billSuggestions: SimResult['billSuggestions'] = [];
+  try {
+    billSuggestions = generateBillSuggestions(
+      inputs,
+      { monthlyA: optimizedDeposits.monthlyA, monthlyB: optimizedDeposits.monthlyB },
+      minBalance
+    );
+  } catch (e) {
+    // suggestions are optional; ignore failures
+  }
 
   return {
-    minBalance: Number.isFinite(minBal) ? minBal : 0,
+    minBalance,
     endBalance: bal,
     requiredDepositA: optimizedDeposits.monthlyA,
     requiredDepositB: optimizedDeposits.monthlyB,
