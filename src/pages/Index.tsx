@@ -114,7 +114,7 @@ const [state, setState] = useState<AppState>({
 
   // Load mock bank data
   const loadBankData = async (mode: 'single' | 'joint') => {
-    setState(prev => ({ ...prev, isLoading: true }));
+           setState(prev => ({ ...prev, isLoading: true }));
     
     try {
       const transactionsA = await loadMockTransactionsA();
@@ -132,7 +132,7 @@ const [state, setState] = useState<AppState>({
       // ❌ Don’t seed UI bills from mock categorisation.
       // We want the worker’s detections to be the source of truth shown in the table.
 
-setState(prev => ({
+        setState(prev => ({
   ...prev,
   mode,
   userA: { transactions: transactionsA, paySchedule: payScheduleA },
@@ -251,7 +251,7 @@ setState(prev => ({
         includedBillIds: allImportedBills.map(b => b.id!),
       }));
     // Re-run when worker detections are present OR when bank data loads
-    }, [detected, state.userA.transactions.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [detected, state.userA.transactions.length]);  
 
   // Render a compact pattern string (no "last …" – that's already the Date column)
   const dowShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -352,7 +352,6 @@ setState(prev => ({
         let depositA: number;
         let resultObj: { minBalance: number; timeline: any };
         if (useWorkerOptimization) {
-          // Use worker's optimized deposits but generate timeline with bills
           depositA = workerResult.requiredDepositA;
           resultObj = runSingle(
             depositA,
@@ -361,8 +360,11 @@ setState(prev => ({
             allBills,
             { months: 12, buffer: 0 }
           );
+          usePlanStore.getState().setResult({
+            ...usePlanStore.getState().result,
+            billSuggestions: workerResult.billSuggestions ?? []
+          });
         } else {
-          // Fallback to original forecast system
           const baselineDeposit = 150;
           depositA = findDepositSingle(
             startDateA,
@@ -377,19 +379,20 @@ setState(prev => ({
             allBills,
             { months: 12, buffer: 0 }
           );
+          setTimeout(() => {
+            try {
+              const s = generateBillSuggestions(
+                inputs as PlanInputs,
+                { monthlyA: depositA },
+                resultObj.minBalance
+              );
+              usePlanStore.getState().setResult({
+                ...usePlanStore.getState().result,
+                billSuggestions: s
+              });
+            } catch { /* ignore */ }
+          }, 0);
         }
-
-        // Generate bill move suggestions to lower deposits
-        let suggestions: SimResult['billSuggestions'] = [];
-        try {
-          suggestions = generateBillSuggestions(inputs as PlanInputs, { monthlyA: depositA }, resultObj.minBalance);
-        } catch (e) {
-          console.warn('Bill suggestions generation failed:', e);
-        }
-        usePlanStore.getState().setResult({
-          ...usePlanStore.getState().result,
-          billSuggestions: suggestions
-        });
 
         setState(prev => ({
           ...prev,
@@ -406,10 +409,13 @@ setState(prev => ({
         const workerResult = result;
         const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
 
-        const startDateB = getStartDate(currentState.userB.paySchedule!, allBills);
+                const detectedNextPayB =
+          (usePlanStore.getState().detected as any)?.salaryB?.nextDateISO ||
+          (usePlanStore.getState().detected as any)?.topSalaryB?.nextDateISO;
+        const startDateB = detectedNextPayB ?? getStartDate(currentState.userB.paySchedule!, allBills);
         const payScheduleB: PaySchedule = { ...currentState.userB.paySchedule!, anchorDate: startDateB };
         // Use the earliest upcoming pay date between A and B as joint start
-        const startDate = (startDateA <= startDateB) ? startDateA : startDateB;
+        const startDate = startDateA <= startDateB ? startDateA : startDateB;
 
         const toMonthly = (s?: SalaryCandidate) => {
           if (!s) return 0;
@@ -440,39 +446,34 @@ setState(prev => ({
               return ps.averageAmount;
           }
         };
-        const incomeA = toMonthly(topSalary) || toMonthlySchedule(payScheduleA);
-        const incomeB = toMonthly(topSalaryB) || toMonthlySchedule(payScheduleB);
-        // Deduct weekly allowances (converted to monthly)
-        const allowanceMonthlyA = currentState.weeklyAllowanceA * 52 / 12;
-        const allowanceMonthlyB = currentState.weeklyAllowanceB * 52 / 12;
-        let incomeA_adj = incomeA - allowanceMonthlyA;
-        let incomeB_adj = incomeB - allowanceMonthlyB;
-        // Subtract personal pot contributions
-        const totalPotsA = currentState.pots
-          .filter(p => p.owner === 'A')
-          .reduce((sum, p) => sum + p.monthly, 0);
-        const totalPotsB = currentState.pots
-          .filter(p => p.owner === 'B')
-          .reduce((sum, p) => sum + p.monthly, 0);
-        // Preliminary ratio for joint-owned pots
-        let preliminaryRatio = incomeA_adj + incomeB_adj > 0 ? incomeA_adj / (incomeA_adj + incomeB_adj) : 0.5;
-        const totalJointPot = currentState.pots
-          .filter(p => p.owner === 'JOINT')
-          .reduce((sum, p) => sum + p.monthly, 0);
-        const jointShareA = totalJointPot * preliminaryRatio;
-        const jointShareB = totalJointPot * (1 - preliminaryRatio);
-        const effIncomeA = incomeA_adj - totalPotsA - jointShareA;
-        const effIncomeB = incomeB_adj - totalPotsB - jointShareB;
-        // Recompute fairness ratio from effective incomes
-        const fairnessRatio = effIncomeA + effIncomeB > 0
-          ? effIncomeA / (effIncomeA + effIncomeB)
-          : 0.5;
+
+        // Base monthly incomes
+        const monthlyA = toMonthly(topSalary) ?? toMonthlySchedule(payScheduleA);
+        const monthlyB = toMonthly(topSalaryB) ?? toMonthlySchedule(payScheduleB);
+
+        // Weekly allowance → monthly
+        const allowanceMonthlyA = (currentState.weeklyAllowanceA ?? 100) * 52 / 12;
+        const allowanceMonthlyB = (currentState.weeklyAllowanceB ?? 100) * 52 / 12;
+
+        // Pots: subtract owner pots fully; split JOINT pots by prelim ratio
+        const prelimRatioA = (monthlyA + monthlyB) > 0 ? monthlyA / (monthlyA + monthlyB) : 0.5;
+        const sumA = (currentState.pots ?? []).filter(p => p.owner === 'A').reduce((s,p)=>s+p.monthly,0);
+        const sumB = (currentState.pots ?? []).filter(p => p.owner === 'B').reduce((s,p)=>s+p.monthly,0);
+        const sumJ = (currentState.pots ?? []).filter(p => p.owner === 'JOINT').reduce((s,p)=>s+p.monthly,0);
+        const jointShareA = sumJ * prelimRatioA;
+        const jointShareB = sumJ * (1 - prelimRatioA);
+
+        // Effective incomes (available for joint)
+        const effA = monthlyA - allowanceMonthlyA - sumA - jointShareA;
+        const effB = monthlyB - allowanceMonthlyB - sumB - jointShareB;
+
+        // Final fairness ratio
+        const fairnessRatioA = (effA + effB) > 0 ? effA / (effA + effB) : 0.5;
 
         let depositA: number;
         let depositB: number | undefined;
         let result: { minBalance: number; timeline: any };
         if (useWorkerOptimization) {
-          // Use worker's optimized deposits but generate timeline with bills
           depositA = workerResult.requiredDepositA;
           depositB = workerResult.requiredDepositB || 0;
           result = runJoint(
@@ -482,17 +483,20 @@ setState(prev => ({
             payScheduleA,
             payScheduleB,
             allBills,
-            { months: 12, fairnessRatioA: fairnessRatio }
+            { months: 12, fairnessRatioA }
           );
+          usePlanStore.getState().setResult({
+            ...usePlanStore.getState().result,
+            billSuggestions: workerResult.billSuggestions ?? []
+          });
         } else {
-          // Compute joint deposits with correct fairness ratio
           const startDateJoint = startDate;
           const deposits = findDepositJoint(
             startDateJoint,
             payScheduleA,
             payScheduleB,
             allBills,
-            fairnessRatio,
+            fairnessRatioA,
             0
           );
           depositA = deposits.depositA;
@@ -504,22 +508,22 @@ setState(prev => ({
             payScheduleA,
             payScheduleB,
             allBills,
-            { months: 12, fairnessRatioA: fairnessRatio }
+            { months: 12, fairnessRatioA }
           );
+          setTimeout(() => {
+            try {
+              const s = generateBillSuggestions(
+                inputs as PlanInputs,
+                { monthlyA: depositA, monthlyB: depositB },
+                result.minBalance
+              );
+              usePlanStore.getState().setResult({
+                ...usePlanStore.getState().result,
+                billSuggestions: s
+              });
+            } catch { /* ignore */ }
+          }, 0);
         }
-
-        // Generate bill move suggestions to lower deposits
-        let suggestions: SimResult['billSuggestions'] = [];
-        try {
-          suggestions = generateBillSuggestions(inputs as PlanInputs, { monthlyA: depositA, monthlyB: depositB }, result.minBalance);
-        } catch (e) {
-          console.warn('Bill suggestions generation failed:', e);
-        }
-        usePlanStore.getState().setResult({
-          ...usePlanStore.getState().result,
-          billSuggestions: suggestions
-        });
-
         setState(prev => ({
           ...prev,
           forecastResult: {
@@ -535,6 +539,11 @@ setState(prev => ({
     } catch (error) {
       console.error('Forecast failed:', error);
       setState(prev => ({ ...prev, isLoading: false }));
+      toast({
+        title: 'Calculation failed',
+        description: (error as Error)?.message ?? 'Check console for details',
+        variant: 'destructive'
+      });
     }
   };
 
