@@ -105,7 +105,7 @@ const [state, setState] = useState<AppState>({
   const [newPotOwner, setNewPotOwner] = useState<'A' | 'B' | 'JOINT'>('A');
 
   // 🔌 NEW: read worker detections (salary + recurring) from the store
-  const { detected, inputs, result } = usePlanStore();
+  const { detected, inputs, result: storeResult } = usePlanStore();
   const topSalary: SalaryCandidate | undefined = detected?.salaries?.[0];
   const topSalaryB: SalaryCandidate | undefined = (detected as any)?.salariesB?.[0];
   const recurringFromStore: RecurringItem[] = detected?.recurring ?? [];
@@ -345,8 +345,8 @@ const [state, setState] = useState<AppState>({
       const payScheduleA: PaySchedule = { ...currentState.userA.paySchedule!, anchorDate: startDateA };
 
       if (currentState.mode === 'single') {
-        // Use optimized deposits from worker result if available, otherwise use old forecast
-        const workerResult = result;
+          // Use optimized deposits from worker result if available, otherwise use old forecast
+          const workerResult = storeResult;
         const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
 
         let depositA: number;
@@ -412,7 +412,7 @@ const [state, setState] = useState<AppState>({
         }));
       } else if (currentState.userB?.paySchedule) {
         // Use optimized deposits from worker result if available, otherwise use old forecast
-        const workerResult = result;
+        const workerResult = storeResult;
         const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
 
                 const detectedNextPayB =
@@ -478,11 +478,11 @@ const [state, setState] = useState<AppState>({
 
         let depositA: number;
         let depositB: number | undefined;
-        let result: { minBalance: number; timeline: any };
+        let simResult: { minBalance: number; timeline: any };
         if (useWorkerOptimization) {
           depositA = workerResult.requiredDepositA;
           depositB = workerResult.requiredDepositB || 0;
-          result = runJoint(
+          simResult = runJoint(
             depositA,
             depositB,
             startDate,
@@ -503,7 +503,7 @@ const [state, setState] = useState<AppState>({
           );
           depositA = deposits.depositA;
           depositB = deposits.depositB;
-          result = runJoint(
+          simResult = runJoint(
             depositA,
             depositB,
             startDateJoint,
@@ -520,7 +520,7 @@ const [state, setState] = useState<AppState>({
               const s = generateBillSuggestions(
                 inputs as PlanInputs,
                 { monthlyA: depositA, monthlyB: depositB },
-                result.minBalance
+                simResult.minBalance
               );
               usePlanStore.getState().setResult({
                 ...usePlanStore.getState().result,
@@ -536,13 +536,13 @@ const [state, setState] = useState<AppState>({
             billSuggestions: workerResult.billSuggestions ?? []
           });
         }
-        setState(prev => ({
+        setState((prev) => ({
           ...prev,
           forecastResult: {
             depositA,
             depositB,
-            minBalance: result.minBalance,
-            timeline: result.timeline
+            minBalance: simResult.minBalance,
+            timeline: simResult.timeline
           },
           isLoading: false,
           step: 'results'
@@ -1167,20 +1167,20 @@ const [state, setState] = useState<AppState>({
                   </Alert>
                 )}
 
-                {/* Bill Movement Suggestions */}
-                {result?.billSuggestions && result.billSuggestions.length > 0 && (
-                  <div className="mt-6">
-                    <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                      <Lightbulb className="w-4 h-4" />
-                      Optimization Suggestions
-                    </h4>
-                    <div className="space-y-2">
-                      {result.billSuggestions.map((suggestion, index) => (
-                        <Alert key={index} className="border-blue-200">
-                          <AlertCircle className="w-4 h-4 text-blue-500" />
-                          <AlertDescription>
-                            <strong>Bill Movement:</strong> {suggestion.reason}
-                            <br />
+                  {/* Bill Movement Suggestions */}
+                  {storeResult?.billSuggestions && storeResult.billSuggestions.length > 0 && (
+                    <div className="mt-6">
+                      <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                        <Lightbulb className="w-4 h-4" />
+                        Optimization Suggestions
+                      </h4>
+                      <div className="space-y-2">
+                        {storeResult.billSuggestions.map((suggestion, index) => (
+                          <Alert key={index} className="border-blue-200">
+                            <AlertCircle className="w-4 h-4 text-blue-500" />
+                            <AlertDescription>
+                              <strong>Bill Movement:</strong> {suggestion.reason}
+                              <br />
                             <span className="text-sm text-muted-foreground">
                               Move from {suggestion.currentDate} to {suggestion.suggestedDate}
                             </span>
