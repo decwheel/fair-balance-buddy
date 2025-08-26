@@ -37,7 +37,7 @@ export function payDates(startISO: string, freq: PayFrequency, months = 12): str
     const step = freq === "weekly" ? 7 : freq === "fortnightly" ? 14 : 28;
     let d = start;
     // advance to the first pay date after today
-    while (d <= today) d = addDays(d, step);
+    while (d < today) d = addDays(d, step);
     const count = Math.ceil((months * 30) / step);
     for (let i = 0; i < count; i++) {
       out.push(formatISO(nextBusinessDay(d), { representation: "date" }));
@@ -48,7 +48,7 @@ export function payDates(startISO: string, freq: PayFrequency, months = 12): str
 
   // Monthly: step forward one month at a time from the anchor date
   let d = start;
-  while (d <= today) d = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  while (d < today) d = new Date(d.getFullYear(), d.getMonth() + 1, d.getDate());
   for (let i = 0; i < months; i++) {
     const raw = new Date(d.getFullYear(), d.getMonth() + i, d.getDate());
     out.push(formatISO(nextBusinessDay(raw), { representation: "date" }));

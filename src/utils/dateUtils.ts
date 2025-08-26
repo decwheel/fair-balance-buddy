@@ -31,8 +31,8 @@ export function calculatePayDates(
         : 28; // FOUR_WEEKLY
 
   let current = new Date(anchorDate);
-  // Advance to the first date after today
-  while (current <= today) {
+  // Advance to the first date on or after today
+  while (current < today) {
     current = addDays(current, step);
   }
 

@@ -318,11 +318,9 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
           movable: true
         }));
         
-        if (!inputs.fairnessRatio) {
-          throw new Error("fairnessRatio required");
-        }
-        const fairnessRatio =
-          inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b);
+        const fairness = inputs.fairnessRatio
+          ? inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b)
+          : 0.5;
           
         const payDatesA = payDates(payScheduleA.anchorDate, mapFrequency(inputs.a.freq), 12);
         const payDatesB = payDates(payScheduleB.anchorDate, mapFrequency(inputs.b.freq), 12);
@@ -335,7 +333,7 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
           payScheduleA,
           payScheduleB,
           bills,
-          fairnessRatio,
+          fairness,
           inputs.minBalance
         );
 
