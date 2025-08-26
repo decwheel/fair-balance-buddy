@@ -8,15 +8,51 @@ import NotFound from "./pages/NotFound";
 import React, { useEffect, useRef, useState } from "react";
 import * as Comlink from "comlink";
 import { usePlanStore } from "./store/usePlanStore";
-import type { PlanInputs, SimResult, Transaction } from "./types";
+import type { PlanInputs, SimResult, Transaction, PayFrequency } from "./types";
 import { toast } from "sonner";
 import mockA from "./fixtures/mock-a-boi-transactions.json";
 import mockB from "./fixtures/mock-b-boi-transactions.json";
 import { mapBoiToTransactions } from "./lib/txMap";
+import { addDaysISO, nextBusinessDay } from "./utils/dateUtils";
 // ✅ Vite worker import – gives you a Worker constructor
 import SimWorker from "./workers/simWorker.ts?worker";
 
 const queryClient = new QueryClient();
+
+function toMonthly(amount: number, freq: PayFrequency): number {
+  const cycles =
+    freq === "weekly" ? 52 / 12 :
+    freq === "fortnightly" || freq === "biweekly" ? 26 / 12 :
+    freq === "four_weekly" ? 13 / 12 : 1;
+  return amount * cycles;
+}
+
+function lastPayDate(tx: Transaction[], amount: number): string | undefined {
+  const tol = 1; // €1 tolerance to match salary transactions
+  return tx
+    .filter(t => t.amount > 0 && Math.abs(t.amount - amount) <= tol)
+    .map(t => t.dateISO)
+    .sort()
+    .pop();
+}
+
+function nextPayDate(freq: PayFrequency, lastISO?: string): string {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  if (freq === "monthly") {
+    const today = new Date(todayISO);
+    const nextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
+    return nextBusinessDay(nextMonth.toISOString().slice(0, 10));
+  }
+
+  const step =
+    freq === "weekly" ? 7 :
+    freq === "four_weekly" ? 28 : 14; // fortnightly/biweekly default 14
+  let next = lastISO || todayISO;
+  while (next <= todayISO) {
+    next = addDaysISO(next, step);
+  }
+  return nextBusinessDay(next);
+}
 
 function App() {
   const {
@@ -120,24 +156,31 @@ function App() {
     // 1) Salary for user A
     const cA = resA.salaries?.[0];
     const inputsUpdate: any = {};
-    
+
     if (cA) {
+      const lastA = lastPayDate(txA, cA.amount);
       inputsUpdate.a = {
-        netMonthly: cA.amount,
-        freq: cA.freq, // Use detected frequency instead of hardcoding "monthly"
-        firstPayISO: cA.firstSeen,
+        netMonthly: toMonthly(cA.amount, cA.freq),
+        freq: cA.freq,
+        firstPayISO: nextPayDate(cA.freq, lastA || cA.firstSeen),
       };
+      inputsUpdate.startISO = inputsUpdate.a.firstPayISO;
     }
     
     // 2) For joint mode, also set user B's salary
     if (resB) {
       const cB = resB.salaries?.[0];
       if (cB) {
+        const lastB = txB ? lastPayDate(txB, cB.amount) : undefined;
+        const firstB = nextPayDate(cB.freq, lastB || cB.firstSeen);
         inputsUpdate.b = {
-          netMonthly: cB.amount,
-          freq: cB.freq, // Use detected frequency instead of hardcoding "monthly"
-          firstPayISO: cB.firstSeen,
+          netMonthly: toMonthly(cB.amount, cB.freq),
+          freq: cB.freq,
+          firstPayISO: firstB,
         };
+        inputsUpdate.startISO = inputsUpdate.startISO
+          ? (inputsUpdate.startISO < firstB ? inputsUpdate.startISO : firstB)
+          : firstB;
       }
       inputsUpdate.mode = "joint";
     } else {
