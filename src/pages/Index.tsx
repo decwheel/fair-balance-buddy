@@ -25,7 +25,7 @@ import { EsbReading } from '@/services/esbCsv';
 import { TariffRates } from '@/services/billPdf';
 import { Bill, PaySchedule, findDepositSingle, findDepositJoint, runSingle, runJoint } from '@/services/forecastAdapters';
 import { generateBillSuggestions } from '@/services/optimizationEngine';
-import { formatCurrency, calculatePayDates } from '@/utils/dateUtils';
+import { formatCurrency, calculatePayDates, addDaysISO } from '@/utils/dateUtils';
 import { predictBills, ElectricityMode } from '@/services/electricityPredictors';
 import { Calendar as DayPicker } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -285,16 +285,10 @@ const [state, setState] = useState<AppState>({
 
       const periodDays = tariff.billingPeriodDays ?? (prev.electricityMode === 'bills6' ? 61 : 60);
 
-      const addDays = (iso: string, days: number) => {
-        const d = new Date(iso);
-        d.setDate(d.getDate() + days);
-        return d.toISOString().split('T')[0];
-      };
-
       const anchorDue = tariff.nextDueDate;
 
       const electricityBills: Bill[] = predicted.map((bill, index) => {
-        const dueDate = anchorDue ? addDays(anchorDue, index * periodDays) : bill.period.end;
+        const dueDate = anchorDue ? addDaysISO(anchorDue, index * periodDays) : bill.period.end;
         return ({
           id: `elec_${index}`,
           name: `${tariff.supplier} ${tariff.plan} — Bill ${index + 1}`,
@@ -407,7 +401,9 @@ const [state, setState] = useState<AppState>({
           .catch(() => {});
       }
 
-      const allBills = rollForwardPastBills(mergedBills, firstPayDate);
+      // Use the same start the solver will use
+      const allBills = rollForwardPastBills(mergedBills, startDate)
+        .filter(b => !b.dueDate || b.dueDate >= startDate);
 
       if (currentState.mode === 'single') {
           // Use optimized deposits from worker result if available, otherwise use old forecast
