@@ -214,6 +214,8 @@ function App() {
       startISO: "2025-09-01",
       minBalance: 0,
       mode: "single",
+      weeklyAllowanceA: 0,
+      weeklyAllowanceB: 0,
     };
     const merged = { ...minimal, ...inputs } as PlanInputs;
     const r = await apiRef.current.simulate(merged);

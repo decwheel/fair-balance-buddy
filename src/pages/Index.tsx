@@ -38,6 +38,7 @@ import { persistBills } from '@/services/supabaseBills';
 import { rollForwardPastBills } from '@/utils/billUtils';
 import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
+import { expandRecurring } from '../lib/expandRecurring';
 
 // UI metadata used to render the Pattern column (keep anchor, drop "last …")
 type RecurringMeta = Record<
@@ -316,6 +317,15 @@ const [state, setState] = useState<AppState>({
         step: electricityBills.length ? 'forecast' : prev.step
       };
     });
+
+    usePlanStore.getState().setInputs({ elecPredicted: electricityBills });
+    const api = (window as any).__workerAPI;
+    if (api) {
+      const currentInputs = { ...usePlanStore.getState().inputs, elecPredicted: electricityBills } as PlanInputs;
+      api.simulate(currentInputs).then(res => {
+        usePlanStore.getState().setResult(res);
+      }).catch(err => console.error('[forecast] worker sim failed:', err));
+    }
   };
 
   // Determine the forecast start date: the most recent pay date before the earliest bill
@@ -333,16 +343,71 @@ const [state, setState] = useState<AppState>({
     setState({ ...currentState, isLoading: true });
 
     try {
-      const selectedBills = currentState.bills.filter(b => currentState.includedBillIds.includes(b.id!));
+      const elecPredicted = (currentState.bills ?? [])
+        .filter(b => b.source === 'predicted-electricity')
+        .map(b => ({ ...b, account: 'JOINT' as const, source: 'electricity' as const }));
+      const manual = (currentState.bills ?? [])
+        .filter(b => b.source === 'manual')
+        .map(b => ({ ...b, account: b.account ?? 'JOINT', source: b.source ?? 'manual' }));
+
       const firstPayDate = currentState.userB?.paySchedule
         ? (currentState.userA.paySchedule!.anchorDate < currentState.userB.paySchedule.anchorDate
             ? currentState.userA.paySchedule!.anchorDate
             : currentState.userB.paySchedule.anchorDate)
         : currentState.userA.paySchedule!.anchorDate;
-      const allBills = rollForwardPastBills(selectedBills, firstPayDate);
 
-      const startDateA = getStartDate(currentState.userA.paySchedule!, allBills);
+      const provisionalBills = [...manual, ...elecPredicted];
+      const allBillsProvisional = rollForwardPastBills(provisionalBills, firstPayDate);
+
+      const startDateA = getStartDate(currentState.userA.paySchedule!, allBillsProvisional);
       const payScheduleA: PaySchedule = { ...currentState.userA.paySchedule!, anchorDate: startDateA };
+
+      let startDateB = '';
+      if (currentState.mode === 'joint' && currentState.userB?.paySchedule) {
+        const detectedNextPayB =
+          (usePlanStore.getState().detected as any)?.salaryB?.nextDateISO ||
+          (usePlanStore.getState().detected as any)?.topSalaryB?.nextDateISO;
+        startDateB = detectedNextPayB ?? getStartDate(currentState.userB.paySchedule!, allBillsProvisional);
+      }
+
+      const startDate = startDateB && startDateA > startDateB ? startDateB : startDateA;
+
+      const months = 12;
+      const importedA = expandRecurring(detected?.recurring ?? [], startDate, months, 'imp-a-');
+      const importedB = expandRecurring(
+        (detected?.recurringB ?? (detected as any)?.allRecurring ?? []),
+        startDate,
+        months,
+        'imp-b-'
+      );
+      const mergedBills = [...manual, ...importedA, ...importedB, ...elecPredicted];
+      console.log(
+        '[forecast] bills: manual=%d, importedA=%d, importedB=%d, elec=%d, total=%d',
+        manual.length,
+        importedA.length,
+        importedB.length,
+        elecPredicted.length,
+        mergedBills.length
+      );
+
+      const api = (window as any).__workerAPI;
+      if (api) {
+        const planForWorker: PlanInputs = {
+          ...usePlanStore.getState().inputs,
+          bills: mergedBills,
+          elecPredicted: elecPredicted,
+          weeklyAllowanceA: currentState.weeklyAllowanceA ?? 0,
+          weeklyAllowanceB: currentState.weeklyAllowanceB ?? 0,
+          startISO: startDate,
+          mode: 'joint',
+        } as any;
+        api
+          .simulate(planForWorker)
+          .then(res => usePlanStore.getState().setResult(res))
+          .catch(() => {});
+      }
+
+      const allBills = rollForwardPastBills(mergedBills, firstPayDate);
 
       if (currentState.mode === 'single') {
           // Use optimized deposits from worker result if available, otherwise use old forecast
@@ -413,15 +478,14 @@ const [state, setState] = useState<AppState>({
       } else if (currentState.userB?.paySchedule) {
         // Use optimized deposits from worker result if available, otherwise use old forecast
         const workerResult = storeResult;
-        const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
+        const useWorkerOptimization = !!(
+          workerResult &&
+          typeof workerResult.requiredDepositA === 'number' &&
+          typeof workerResult.requiredDepositB === 'number'
+        );
 
-                const detectedNextPayB =
-          (usePlanStore.getState().detected as any)?.salaryB?.nextDateISO ||
-          (usePlanStore.getState().detected as any)?.topSalaryB?.nextDateISO;
-        const startDateB = detectedNextPayB ?? getStartDate(currentState.userB.paySchedule!, allBills);
         const payScheduleB: PaySchedule = { ...currentState.userB.paySchedule!, anchorDate: startDateB };
-        // Use the earliest upcoming pay date between A and B as joint start
-        const startDate = startDateA <= startDateB ? startDateA : startDateB;
+        console.log('[forecast] first B payday anchor=%s', payScheduleB.anchorDate);
 
         const toMonthly = (s?: SalaryCandidate): number | undefined => {
           if (!s) return undefined;
@@ -475,13 +539,14 @@ const [state, setState] = useState<AppState>({
 
         // Final fairness ratio
         const fairnessRatioA = (effA + effB) > 0 ? effA / (effA + effB) : 0.5;
+        console.log('[forecast] fairnessRatioA=%s effA=%s effB=%s', fairnessRatioA.toFixed(4), effA.toFixed(2), effB.toFixed(2));
 
         let depositA: number;
         let depositB: number | undefined;
         let simResult: { minBalance: number; timeline: any };
         if (useWorkerOptimization) {
-          depositA = workerResult.requiredDepositA;
-          depositB = workerResult.requiredDepositB || 0;
+          depositA = workerResult.requiredDepositA!;
+          depositB = workerResult.requiredDepositB!;
           simResult = runJoint(
             depositA,
             depositB,
@@ -513,6 +578,8 @@ const [state, setState] = useState<AppState>({
             { months: 12, fairnessRatioA }
           );
         }
+
+        console.log('[forecast] deposits: A=%s, B=%s', depositA.toFixed(2), (depositB ?? 0).toFixed(2));
 
         if (!useWorkerOptimization) {
           setTimeout(() => {
@@ -1132,7 +1199,7 @@ const [state, setState] = useState<AppState>({
                     <p className="text-sm text-muted-foreground">per pay period</p>
                   </div>
                   
-                  {state.mode === 'joint' && state.forecastResult.depositB && (
+                  {state.mode === 'joint' && typeof state.forecastResult.depositB === 'number' && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Person B Deposit</p>
                       <p className="text-3xl font-bold text-primary">

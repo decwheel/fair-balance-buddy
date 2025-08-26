@@ -39,6 +39,8 @@ export type PlanInputs = {
   startISO: string;
   minBalance: number;        // usually 0
   mode: "single"|"joint"|"holdback";
+  weeklyAllowanceA?: number;
+  weeklyAllowanceB?: number;
   fairnessRatio?: { a: number; b: number }; // income-based
 };
 
