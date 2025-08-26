@@ -4,95 +4,96 @@ import * as Comlink from "comlink";
 import type {
   PlanInputs,
   SimResult,
-  TimelineEntry,
   Transaction,
   SalaryCandidate,
   RecurringItem,
 } from "../types";
-import { payDates } from "../lib/dateUtils";
 import { detectSalaryCandidates, detectRecurringBillsFromTx } from "../lib/recurring";
-import { findDepositSingle, findDepositJoint } from "../services/forecastAdapters";
+import { findDepositSingle, findDepositJoint, runSingle, runJoint } from "../services/forecastAdapters";
 import { generateBillSuggestions } from "../services/optimizationEngine";
 
 // Minimal non-blocking skeleton.
 function simulate(inputs: PlanInputs): SimResult {
-  const months = 12;
-  const entries: TimelineEntry[] = [];
-
-  // Calculate deposits using ratio-based method
-  let optimizedDeposits: { monthlyA: number; monthlyB?: number };
-
   const allBills = [...(inputs.bills ?? []), ...(inputs.elecPredicted ?? [])];
   const payScheduleA = { frequency: inputs.a.freq.toUpperCase(), anchorDate: inputs.a.firstPayISO } as const;
 
   if (inputs.b) {
     const payScheduleB = { frequency: inputs.b.freq.toUpperCase(), anchorDate: inputs.b.firstPayISO } as const;
-    const fairnessRatio = inputs.fairnessRatio ? inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b) : 0.5;
-    const { depositA, depositB } = findDepositJoint(inputs.startISO, payScheduleA, payScheduleB, allBills, fairnessRatio, 0);
-    optimizedDeposits = { monthlyA: depositA, monthlyB: depositB };
+
+    const monthlyA = inputs.a.netMonthly;
+    const monthlyB = inputs.b.netMonthly;
+    const allowanceA = (inputs.weeklyAllowanceA ?? 0) * 52 / 12;
+    const allowanceB = (inputs.weeklyAllowanceB ?? 0) * 52 / 12;
+    const prelim = monthlyA + monthlyB > 0 ? monthlyA / (monthlyA + monthlyB) : 0.5;
+    const sumA = (inputs.pots ?? []).filter(p => p.owner === 'A').reduce((s,p)=>s+p.monthly,0);
+    const sumB = (inputs.pots ?? []).filter(p => p.owner === 'B').reduce((s,p)=>s+p.monthly,0);
+    const sumJ = (inputs.pots ?? []).filter(p => p.owner === 'JOINT').reduce((s,p)=>s+p.monthly,0);
+    const jointShareA = sumJ * prelim;
+    const jointShareB = sumJ * (1 - prelim);
+    const effA = monthlyA - allowanceA - sumA - jointShareA;
+    const effB = monthlyB - allowanceB - sumB - jointShareB;
+    const fairnessRatioA = effA + effB > 0 ? effA / (effA + effB) : 0.5;
+
+    const { depositA, depositB } = findDepositJoint(
+      inputs.startISO,
+      payScheduleA,
+      payScheduleB,
+      allBills,
+      fairnessRatioA,
+      0
+    );
+    const result = runJoint(
+      depositA,
+      depositB,
+      inputs.startISO,
+      payScheduleA,
+      payScheduleB,
+      allBills,
+      { months: 12, fairnessRatioA }
+    );
+
+    let billSuggestions: SimResult['billSuggestions'] = [];
+    try {
+      billSuggestions = generateBillSuggestions(
+        inputs,
+        { monthlyA: depositA, monthlyB: depositB },
+        result.minBalance
+      );
+    } catch (e) {
+      // suggestions optional
+    }
+
+    return {
+      minBalance: result.minBalance,
+      endBalance: result.endBalance,
+      requiredDepositA: depositA,
+      requiredDepositB: depositB,
+      entries: result.timeline.map(t => ({ dateISO: t.date, delta: 0, label: t.event || '', who: 'JOINT' as const })),
+      billSuggestions,
+    };
   } else {
     const depositA = findDepositSingle(inputs.startISO, payScheduleA, allBills, 0);
-    optimizedDeposits = { monthlyA: depositA };
+    const result = runSingle(depositA, inputs.startISO, payScheduleA, allBills, { months: 12, buffer: 0 });
+
+    let billSuggestions: SimResult['billSuggestions'] = [];
+    try {
+      billSuggestions = generateBillSuggestions(
+        inputs,
+        { monthlyA: depositA },
+        result.minBalance
+      );
+    } catch (e) {
+      // ignore
+    }
+
+    return {
+      minBalance: result.minBalance,
+      endBalance: result.endBalance,
+      requiredDepositA: depositA,
+      entries: result.timeline.map(t => ({ dateISO: t.date, delta: 0, label: t.event || '', who: 'A' as const })),
+      billSuggestions,
+    };
   }
-
-  // Inflows: A (using optimized deposits)
-  const aPays = payDates(inputs.a.firstPayISO, inputs.a.freq, months).map((d) => ({
-    dateISO: d,
-    delta: optimizedDeposits.monthlyA,
-    label: "Pay A (Optimized)",
-    who: "A" as const,
-  }));
-  entries.push(...aPays);
-
-  // Optional B (using optimized deposits)
-  if (inputs.b && optimizedDeposits.monthlyB) {
-    const bPays = payDates(inputs.b.firstPayISO, inputs.b.freq, months).map((d) => ({
-      dateISO: d,
-      delta: optimizedDeposits.monthlyB!,
-      label: "Pay B (Optimized)",
-      who: "B" as const,
-    }));
-    entries.push(...bPays);
-  }
-
-  // Outflows
-  for (const b of inputs.bills ?? []) {
-    if (b.dueDateISO) entries.push({ dateISO: b.dueDateISO, delta: -b.amount, label: b.name, who: b.account });
-  }
-  for (const e of inputs.elecPredicted ?? []) {
-    if (e.dueDateISO) entries.push({ dateISO: e.dueDateISO, delta: -e.amount, label: e.name, who: "JOINT" });
-  }
-  // Pot contributions are handled in income adjustments before forecasting
-
-  entries.sort((a, b) => a.dateISO.localeCompare(b.dateISO));
-
-  let bal = 0;
-  let minBal = Infinity;
-  for (const it of entries) {
-    bal += it.delta;
-    if (bal < minBal) minBal = bal;
-  }
-  const minBalance = Number.isFinite(minBal) ? minBal : 0;
-
-  let billSuggestions: SimResult['billSuggestions'] = [];
-  try {
-    billSuggestions = generateBillSuggestions(
-      inputs,
-      { monthlyA: optimizedDeposits.monthlyA, monthlyB: optimizedDeposits.monthlyB },
-      minBalance
-    );
-  } catch (e) {
-    // suggestions are optional; ignore failures
-  }
-
-  return {
-    minBalance,
-    endBalance: bal,
-    requiredDepositA: optimizedDeposits.monthlyA,
-    requiredDepositB: optimizedDeposits.monthlyB,
-    entries,
-    billSuggestions,
-  };
 }
 
 function analyzeTransactions(tx: Transaction[]): { salaries: SalaryCandidate[]; recurring: RecurringItem[] } {
