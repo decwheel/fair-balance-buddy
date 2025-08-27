@@ -39,8 +39,6 @@ import { rollForwardPastBills } from '@/utils/billUtils';
 import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 import { expandRecurring } from '../lib/expandRecurring';
-import { USE_MOCK_GC } from '@/config';
-import { startGcLink, fetchGcTransactions } from '@/services/gc';
 
 // UI metadata used to render the Pattern column (keep anchor, drop "last …")
 type RecurringMeta = Record<
@@ -114,103 +112,56 @@ const [state, setState] = useState<AppState>({
   const recurringFromStore: RecurringItem[] = detected?.recurring ?? [];
   const recurringFromStoreB: RecurringItem[] = (detected as any)?.recurringB ?? [];
 
-  // When returning from GoCardless redirect, pull real transactions
-  useEffect(() => {
-    if (USE_MOCK_GC) return;
-    const url = new URL(window.location.href);
-    if (url.searchParams.get('gc') === '1') {
-      const requisitionId = localStorage.getItem('gc_requisition_id');
-      if (requisitionId) {
-        (async () => {
-          setState(prev => ({ ...prev, isLoading: true }));
-          try {
-            const transactions = await fetchGcTransactions(requisitionId);
-            const categorizedA = categorizeBankTransactions(transactions);
-            const payScheduleA = extractPayScheduleFromWages(categorizedA.wages);
-            setState(prev => ({
-              ...prev,
-              mode: 'single',
-              userA: { transactions, paySchedule: payScheduleA },
-              step: 'bank',
-              isLoading: false,
-            }));
-            const runDetection = (window as any).__runDetection;
-            if (runDetection) await runDetection(transactions);
-          } catch (err) {
-            console.error('Failed to fetch GoCardless transactions:', err);
-            setState(prev => ({ ...prev, isLoading: false }));
-          } finally {
-            localStorage.removeItem('gc_requisition_id');
-            url.searchParams.delete('gc');
-            window.history.replaceState(null, '', url.toString());
-          }
-        })();
-      }
-    }
-  }, []);
 
-
-  // Load bank data, using mock fixtures or GoCardless based on env
+  // Load mock bank data
   const loadBankData = async (mode: 'single' | 'joint') => {
-    setState(prev => ({ ...prev, isLoading: true }));
+           setState(prev => ({ ...prev, isLoading: true }));
+    
+    try {
+      const transactionsA = await loadMockTransactionsA();
+      const categorizedA = categorizeBankTransactions(transactionsA);
+      const payScheduleA = extractPayScheduleFromWages(categorizedA.wages);
 
-    if (USE_MOCK_GC) {
-      try {
-        const transactionsA = await loadMockTransactionsA();
-        const categorizedA = categorizeBankTransactions(transactionsA);
-        const payScheduleA = extractPayScheduleFromWages(categorizedA.wages);
+      let userB = undefined;
+      if (mode === 'joint') {
+        const transactionsB = await loadMockTransactionsB();
+        const categorizedB = categorizeBankTransactions(transactionsB);
+        const payScheduleB = extractPayScheduleFromWages(categorizedB.wages);
+        userB = { transactions: transactionsB, paySchedule: payScheduleB };
+      }
 
-        let userB = undefined;
-        if (mode === 'joint') {
-          const transactionsB = await loadMockTransactionsB();
-          const categorizedB = categorizeBankTransactions(transactionsB);
-          const payScheduleB = extractPayScheduleFromWages(categorizedB.wages);
-          userB = { transactions: transactionsB, paySchedule: payScheduleB };
-        }
-
-        // ❌ Don’t seed UI bills from mock categorisation.
-        // We want the worker’s detections to be the source of truth shown in the table.
+      // ❌ Don’t seed UI bills from mock categorisation.
+      // We want the worker’s detections to be the source of truth shown in the table.
 
         setState(prev => ({
-          ...prev,
-          mode,
-          userA: { transactions: transactionsA, paySchedule: payScheduleA },
-          userB,
-          // ⚠️ Keep whatever the worker may have already populated
-          bills: prev.bills,
-          includedBillIds: prev.includedBillIds,
-          isLoading: false,
-          step: 'bank'
-        }));
+  ...prev,
+  mode,
+  userA: { transactions: transactionsA, paySchedule: payScheduleA },
+  userB,
+  // ⚠️ Keep whatever the worker may have already populated
+  bills: prev.bills,
+  includedBillIds: prev.includedBillIds,
+  isLoading: false,
+  step: 'bank'
+}));
 
-        // 🔌 NEW: Trigger worker detection system
-        const switchToJointMode = (window as any).__switchToJointMode;
-        const runDetection = (window as any).__runDetection;
-
-        if (mode === 'joint' && switchToJointMode) {
-          console.log('[loadBankData] Triggering joint mode detection...');
-          await switchToJointMode();
-        } else if (mode === 'single' && runDetection) {
-          console.log('[loadBankData] Triggering single mode detection...');
-          const { mapBoiToTransactions } = await import('../lib/txMap');
-          const mockA = await import('../fixtures/mock-a-boi-transactions.json');
-          const txA = mapBoiToTransactions(mockA as any);
-          await runDetection(txA);
-        }
-      } catch (error) {
-        console.error('Failed to load bank data:', error);
-        setState(prev => ({ ...prev, isLoading: false }));
+      // 🔌 NEW: Trigger worker detection system
+      const switchToJointMode = (window as any).__switchToJointMode;
+      const runDetection = (window as any).__runDetection;
+      
+      if (mode === 'joint' && switchToJointMode) {
+        console.log('[loadBankData] Triggering joint mode detection...');
+        await switchToJointMode();
+      } else if (mode === 'single' && runDetection) {
+        console.log('[loadBankData] Triggering single mode detection...');
+        const { mapBoiToTransactions } = await import('../lib/txMap');
+        const mockA = await import('../fixtures/mock-a-boi-transactions.json');
+        const txA = mapBoiToTransactions(mockA as any);
+        await runDetection(txA);
       }
-    } else {
-      try {
-        const redirect = `${window.location.origin}?gc=1`;
-        const { link, requisition_id } = await startGcLink(redirect, 'BANK_OF_IRELAND');
-        localStorage.setItem('gc_requisition_id', requisition_id);
-        window.location.href = link;
-      } catch (error) {
-        console.error('Failed to start bank link:', error);
-        setState(prev => ({ ...prev, isLoading: false }));
-      }
+    } catch (error) {
+      console.error('Failed to load bank data:', error);
+      setState(prev => ({ ...prev, isLoading: false }));
     }
   };
 
@@ -818,22 +769,20 @@ const [state, setState] = useState<AppState>({
                   disabled={state.isLoading}
                 >
                   <Calculator className="w-6 h-6" />
-                  <span className="font-medium">Link Account</span>
-                  <span className="text-xs text-muted-foreground">Fetch real transactions</span>
+                  <span className="font-medium">Single Account</span>
+                  <span className="text-xs text-muted-foreground">Individual forecasting</span>
                 </Button>
-
-                {USE_MOCK_GC && (
-                  <Button
-                    variant="outline"
-                    className="h-24 flex flex-col space-y-2"
-                    onClick={() => loadBankData('joint')}
-                    disabled={state.isLoading}
-                  >
-                    <Users className="w-6 h-6" />
-                    <span className="font-medium">Joint Account</span>
-                    <span className="text-xs text-muted-foreground">Couple's forecasting</span>
-                  </Button>
-                )}
+                
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col space-y-2"
+                  onClick={() => loadBankData('joint')}
+                  disabled={state.isLoading}
+                >
+                  <Users className="w-6 h-6" />
+                  <span className="font-medium">Joint Account</span>
+                  <span className="text-xs text-muted-foreground">Couple's forecasting</span>
+                </Button>
               </div>
               
               {state.isLoading && (
