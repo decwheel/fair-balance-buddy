@@ -39,6 +39,8 @@ import { rollForwardPastBills } from '@/utils/billUtils';
 import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 import { expandRecurring } from '../lib/expandRecurring';
+import { USE_MOCK_GC } from '@/config';
+import { startGcLink, fetchGcTransactions } from '@/services/gc';
 
 // UI metadata used to render the Pattern column (keep anchor, drop "last …")
 type RecurringMeta = Record<
@@ -112,56 +114,137 @@ const [state, setState] = useState<AppState>({
   const recurringFromStore: RecurringItem[] = detected?.recurring ?? [];
   const recurringFromStoreB: RecurringItem[] = (detected as any)?.recurringB ?? [];
 
+  // When returning from GoCardless redirect, pull real transactions
+  useEffect(() => {
+    if (USE_MOCK_GC) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('gc') === '1') {
+      const requisitionId = localStorage.getItem('gc_requisition_id');
+      const gcUser = localStorage.getItem('gc_user') as 'A' | 'B' | null;
+      const gcMode = (localStorage.getItem('gc_mode') as AppState['mode']) || 'single';
+      const storedA = localStorage.getItem('gc_userA');
+      const storedB = localStorage.getItem('gc_userB');
+      if (requisitionId && gcUser) {
+        (async () => {
+          setState(prev => ({ ...prev, isLoading: true }));
+          try {
+            const transactions = await fetchGcTransactions(requisitionId);
+            const categorized = categorizeBankTransactions(transactions);
+            const paySchedule = extractPayScheduleFromWages(categorized.wages);
 
-  // Load mock bank data
-  const loadBankData = async (mode: 'single' | 'joint') => {
-           setState(prev => ({ ...prev, isLoading: true }));
-    
-    try {
-      const transactionsA = await loadMockTransactionsA();
-      const categorizedA = categorizeBankTransactions(transactionsA);
-      const payScheduleA = extractPayScheduleFromWages(categorizedA.wages);
+            const userA = gcUser === 'A'
+              ? { transactions, paySchedule }
+              : storedA
+                ? JSON.parse(storedA)
+                : { transactions: [], paySchedule: null };
+            const userB = gcUser === 'B'
+              ? { transactions, paySchedule }
+              : storedB
+                ? JSON.parse(storedB)
+                : undefined;
 
-      let userB = undefined;
-      if (mode === 'joint') {
-        const transactionsB = await loadMockTransactionsB();
-        const categorizedB = categorizeBankTransactions(transactionsB);
-        const payScheduleB = extractPayScheduleFromWages(categorizedB.wages);
-        userB = { transactions: transactionsB, paySchedule: payScheduleB };
+            setState(prev => ({
+              ...prev,
+              mode: gcMode,
+              userA,
+              userB,
+              step: 'bank',
+              isLoading: false,
+            }));
+
+            const runDetection = (window as any).__runDetection;
+            if (runDetection) {
+              if (gcMode === 'joint' && userA.transactions.length && userB?.transactions.length) {
+                await runDetection(userA.transactions, userB.transactions);
+              } else if (userA.transactions.length) {
+                await runDetection(userA.transactions);
+              }
+            }
+          } catch (err) {
+            console.error('Failed to fetch GoCardless transactions:', err);
+            toast({
+              title: 'Failed to fetch transactions',
+              description: err instanceof Error ? err.message : String(err),
+              variant: 'destructive'
+            });
+            setState(prev => ({ ...prev, isLoading: false }));
+          } finally {
+            localStorage.removeItem('gc_requisition_id');
+            localStorage.removeItem('gc_user');
+            localStorage.removeItem('gc_mode');
+            url.searchParams.delete('gc');
+            window.history.replaceState(null, '', url.toString());
+          }
+        })();
       }
+    }
+  }, []);
 
-      // ❌ Don’t seed UI bills from mock categorisation.
-      // We want the worker’s detections to be the source of truth shown in the table.
+
+  // Link a specific user's account, using mock fixtures or GoCardless based on env
+  const linkAccount = async (who: 'A' | 'B') => {
+    setState(prev => ({ ...prev, isLoading: true }));
+
+    if (USE_MOCK_GC) {
+      try {
+        const transactions =
+          who === 'A' ? await loadMockTransactionsA() : await loadMockTransactionsB();
+        const categorized = categorizeBankTransactions(transactions);
+        const paySchedule = extractPayScheduleFromWages(categorized.wages);
+
+        const txA = who === 'A' ? transactions : state.userA.transactions;
+        const txB =
+          state.mode === 'joint'
+            ? who === 'B'
+              ? transactions
+              : state.userB?.transactions
+            : undefined;
 
         setState(prev => ({
-  ...prev,
-  mode,
-  userA: { transactions: transactionsA, paySchedule: payScheduleA },
-  userB,
-  // ⚠️ Keep whatever the worker may have already populated
-  bills: prev.bills,
-  includedBillIds: prev.includedBillIds,
-  isLoading: false,
-  step: 'bank'
-}));
+          ...prev,
+          userA: who === 'A' ? { transactions, paySchedule } : prev.userA,
+          userB: who === 'B' ? { transactions, paySchedule } : prev.userB,
+          isLoading: false,
+        }));
 
-      // 🔌 NEW: Trigger worker detection system
-      const switchToJointMode = (window as any).__switchToJointMode;
-      const runDetection = (window as any).__runDetection;
-      
-      if (mode === 'joint' && switchToJointMode) {
-        console.log('[loadBankData] Triggering joint mode detection...');
-        await switchToJointMode();
-      } else if (mode === 'single' && runDetection) {
-        console.log('[loadBankData] Triggering single mode detection...');
-        const { mapBoiToTransactions } = await import('../lib/txMap');
-        const mockA = await import('../fixtures/mock-a-boi-transactions.json');
-        const txA = mapBoiToTransactions(mockA as any);
-        await runDetection(txA);
+        const runDetection = (window as any).__runDetection;
+        if (runDetection) {
+          if (state.mode === 'joint' && txA.length && txB && txB.length) {
+            await runDetection(txA, txB);
+          } else {
+            await runDetection(txA);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load bank data:', error);
+        toast({
+          title: 'Failed to load bank data',
+          description: error instanceof Error ? error.message : String(error),
+          variant: 'destructive'
+        });
+        setState(prev => ({ ...prev, isLoading: false }));
       }
-    } catch (error) {
-      console.error('Failed to load bank data:', error);
-      setState(prev => ({ ...prev, isLoading: false }));
+    } else {
+      try {
+        // Persist current mode and any existing user data so we can restore after redirect
+        localStorage.setItem('gc_mode', state.mode);
+        localStorage.setItem('gc_user', who);
+        localStorage.setItem('gc_userA', JSON.stringify(state.userA));
+        if (state.userB) localStorage.setItem('gc_userB', JSON.stringify(state.userB));
+
+        const redirect = `${window.location.origin}?gc=1`;
+        const { link, requisition_id } = await startGcLink(redirect, 'BANK_OF_IRELAND');
+        localStorage.setItem('gc_requisition_id', requisition_id);
+        window.location.href = link;
+      } catch (error) {
+        console.error('Failed to start bank link:', error);
+        toast({
+          title: 'Failed to start bank link',
+          description: error instanceof Error ? error.message : String(error),
+          variant: 'destructive'
+        });
+        setState(prev => ({ ...prev, isLoading: false }));
+      }
     }
   };
 
@@ -765,34 +848,23 @@ const [state, setState] = useState<AppState>({
                 <Button
                   variant="outline"
                   className="h-24 flex flex-col space-y-2"
-                  onClick={() => loadBankData('single')}
-                  disabled={state.isLoading}
+                  onClick={() => setState(prev => ({ ...prev, mode: 'single', step: 'bank' }))}
                 >
                   <Calculator className="w-6 h-6" />
-                  <span className="font-medium">Single Account</span>
-                  <span className="text-xs text-muted-foreground">Individual forecasting</span>
+                  <span className="font-medium">Single</span>
+                  <span className="text-xs text-muted-foreground">Forecast just for you</span>
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   className="h-24 flex flex-col space-y-2"
-                  onClick={() => loadBankData('joint')}
-                  disabled={state.isLoading}
+                  onClick={() => setState(prev => ({ ...prev, mode: 'joint', step: 'bank' }))}
                 >
                   <Users className="w-6 h-6" />
-                  <span className="font-medium">Joint Account</span>
+                  <span className="font-medium">Joint</span>
                   <span className="text-xs text-muted-foreground">Couple's forecasting</span>
                 </Button>
               </div>
-              
-              {state.isLoading && (
-                <div className="space-y-2">
-                  <Progress value={undefined} />
-                  <p className="text-sm text-center text-muted-foreground">
-                    Loading mock bank data...
-                  </p>
-                </div>
-              )}
             </CardContent>
           </Card>
         )}
@@ -807,12 +879,32 @@ const [state, setState] = useState<AppState>({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Person A</p>
-                  <Badge variant="secondary">{state.userA.transactions.length} transactions</Badge>
+                  {state.userA.transactions.length > 0 ? (
+                    <Badge variant="secondary">{state.userA.transactions.length} transactions</Badge>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      onClick={() => linkAccount('A')}
+                      disabled={state.isLoading}
+                    >
+                      Link Account
+                    </Button>
+                  )}
                 </div>
-                {state.mode === 'joint' && state.userB && (
+                {state.mode === 'joint' && (
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">Person B</p>
-                    <Badge variant="secondary">{state.userB.transactions.length} transactions</Badge>
+                    {state.userB?.transactions.length ? (
+                      <Badge variant="secondary">{state.userB.transactions.length} transactions</Badge>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        onClick={() => linkAccount('B')}
+                        disabled={state.isLoading}
+                      >
+                        Link Account
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
