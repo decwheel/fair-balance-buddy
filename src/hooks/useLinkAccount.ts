@@ -1,17 +1,47 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
-// If your “boi” fixtures need mapping, keep normalizeMock.
+// Helper function to detect transaction category
+function detectCategory(description: string, amount: number): 'wages' | 'bills' | 'misc' {
+  const desc = (description || '').toUpperCase();
+  const isCredit = amount >= 0;
+
+  const wageKeywords = [
+    'SALARY', 'PAYROLL', 'PAYMENT', 'WAGES', 'WAGE', 'PAYE', 'HR', 'ACME', 'BONUS'
+  ];
+  const billKeywords = [
+    'ESB', 'ELECTRIC', 'BORD GAIS', 'GAS', 'IRISH WATER', 'WATER', 'EIR', 'VODAFONE', 'THREE',
+    'NETFLIX', 'SPOTIFY', 'INSURANCE', 'MORTGAGE', 'RENT', 'LOAN', 'DD', 'DIRECT DEBIT',
+    'EFLOW', 'TOLL', 'CRECHE', 'SSE', 'ENERGY', 'WASTE', 'BIN'
+  ];
+
+  if (isCredit && wageKeywords.some(k => desc.includes(k))) return 'wages';
+  if (!isCredit && billKeywords.some(k => desc.includes(k))) return 'bills';
+  return 'misc';
+}
+
+// If your "boi" fixtures need mapping, keep normalizeMock.
 // Otherwise you can swap to your own mapBoiToTransactions helper.
 const normalizeMock = (raw: any[]) =>
-  raw.map((x: any) => ({
-    id: x.id ?? crypto.randomUUID(),
-    date: x.bookingDate ?? x.date,
-    amount: Number(x.amount),
-    description: x.remittanceInformation ?? x.description ?? '',
-    currency: x.currency ?? 'EUR',
-    type: Number(x.amount) < 0 ? 'debit' : 'credit',
-  }));
+  raw.map((x: any) => {
+    // Handle different data formats - mock B uses transactionAmount.amount
+    const amount = Number(x.transactionAmount?.amount ?? x.amount ?? 0);
+    const description = x.remittanceInformationUnstructured ?? x.remittanceInformation ?? x.description ?? '';
+    const date = x.bookingDate ?? x.date;
+    const id = x.transactionId ?? x.id ?? crypto.randomUUID();
+    
+    return {
+      id,
+      dateISO: date,
+      date,
+      amount,
+      description,
+      currency: x.transactionAmount?.currency ?? x.currency ?? 'EUR',
+      type: amount < 0 ? 'debit' : 'credit',
+      category: detectCategory(description, amount),
+      balance: 0, // Mock data doesn't have balance
+    };
+  });
 
 // 👇 import from src/fixtures (no fetch)
 import mockA from '@/fixtures/mock-a-boi-transactions.json';
@@ -32,6 +62,13 @@ export function useLinkAccount() {
           const raw = partner === 'A' ? (mockA as any) : (mockB as any);
           const arr = Array.isArray(raw) ? raw : (raw?.transactions ?? raw);
           const transactions = normalizeMock(arr);
+          console.log(`[useLinkAccount] Normalized ${partner} transactions:`, {
+            total: transactions.length,
+            wages: transactions.filter(t => t.category === 'wages').length,
+            bills: transactions.filter(t => t.category === 'bills').length,
+            sampleWages: transactions.filter(t => t.category === 'wages').slice(0, 3),
+            sampleBills: transactions.filter(t => t.category === 'bills').slice(0, 3)
+          });
           window.dispatchEvent(new CustomEvent('gc:transactions', { detail: { partner, transactions } }) as any);
           // keep if you use this prompt somewhere
           window.dispatchEvent(new CustomEvent('gc:salaryPrompt', { detail: { partner } }) as any);
