@@ -267,70 +267,79 @@ const [state, setState] = useState<AppState>({
         includedBillIds: allImportedBills.map(b => b.id!),
       }));
     // Re-run when worker detections are present OR when bank data loads
-    }, [detected, state.userA.transactions.length]);
+    }, [detected, state.linkedA, state.linkedB]);
 
   // When useLinkAccount (mock) dispatches transactions → hydrate state for that partner
   useEffect(() => {
     const onTx = (e: any) => {
       if (!e?.detail) return;
-      const { partner, transactions } = e.detail as { partner: 'A'|'B'; transactions: Transaction[] };
+      const { partner, transactions } = e.detail as { partner: 'A' | 'B'; transactions: Transaction[] };
       const categorized = categorizeBankTransactions(transactions);
       const pay = extractPayScheduleFromWages(categorized.wages);
-      setState(prev => ({
-        ...prev,
-        ...(partner === 'A'
-          ? { userA: { transactions, paySchedule: pay }, linkedA: true }
-          : {
-              userB: { transactions, paySchedule: pay } as any,
-              linkedB: true,
-              mode: prev.mode === 'single' ? 'joint' : prev.mode
-            }),
-        step: 'bank'
-      }));
+
+      let nextState!: AppState;
+      setState(prev => {
+        nextState =
+          partner === 'A'
+            ? { ...prev, userA: { transactions, paySchedule: pay }, linkedA: true, step: 'bank' }
+            : { ...prev, userB: { transactions, paySchedule: pay } as any, linkedB: true, mode: prev.mode === 'single' ? 'joint' : prev.mode, step: 'bank' };
+        return nextState;
+      });
+
+      const txA = nextState.userA.transactions ?? [];
+      const txB = nextState.userB?.transactions ?? [];
+      (window as any).__runDetection?.(txA, txB);
     };
+
     window.addEventListener('gc:transactions' as any, onTx);
     return () => window.removeEventListener('gc:transactions' as any, onTx);
   }, []);
-  +
+
+
   // After user finishes bank auth (live), callback posts a message → pull transactions
   useEffect(() => {
     const handler = async (e: MessageEvent<any>) => {
       if (!e?.data || e.data.type !== 'GC_LINK_DONE') return;
-      const { partner, requisitionId } = e.data as { partner: 'A'|'B'; requisitionId: string };
-      // Optionally show "checking with bank..." by toggling isLoading
+      const { partner, requisitionId } = e.data as { partner: 'A' | 'B'; requisitionId: string };
+
       setState(prev => ({ ...prev, isLoading: true, step: 'bank' }));
-      const { data, error } = await supabase.functions.invoke('gc_pull', {
-        body: { requisitionId, partner }
-      });
+      const { data, error } = await supabase.functions.invoke('gc_pull', { body: { requisitionId, partner } });
       setState(prev => ({ ...prev, isLoading: false }));
-      if (error) {
-        console.error('gc_pull error:', error);
-        alert(`Pull failed: ${(error as any)?.message || (error as any)?.context || 'Unknown'}`);
-        return;
-      }
+      if (error) { console.error('gc_pull error:', error); alert(/*…*/); return; }
+
       const txs = Array.isArray(data) ? data : (data.transactions ?? []);
       const categorized = categorizeBankTransactions(txs);
       const pay = extractPayScheduleFromWages(categorized.wages);
-      setState(prev => ({
-        ...prev,
-        ...(partner === 'A'
-          ? { userA: { transactions: txs, paySchedule: pay }, linkedA: true }
-          : {
-              userB: { transactions: txs, paySchedule: pay } as any,
-              linkedB: true,
-              mode: prev.mode === 'single' ? 'joint' : prev.mode
-            }),
-        step: 'bank'
-      }));
+
+      let nextState!: AppState;
+      setState(prev => {
+        nextState =
+          partner === 'A'
+            ? { ...prev, userA: { transactions: txs, paySchedule: pay }, linkedA: true, step: 'bank' }
+            : { ...prev, userB: { transactions: txs, paySchedule: pay } as any, linkedB: true, mode: prev.mode === 'single' ? 'joint' : prev.mode, step: 'bank' };
+        return nextState;
+      });
+
+      (window as any).__runDetection?.(
+        nextState.userA.transactions ?? [],
+        nextState.userB?.transactions ?? []
+      );
     };
+
     window.addEventListener('message', handler);
     const bc = new BroadcastChannel('fair-balance-buddy');
     bc.onmessage = handler as any;
-    return () => {
-      window.removeEventListener('message', handler);
-      bc.close();
-    };
+    return () => { window.removeEventListener('message', handler); bc.close(); };
   }, []);
+
+
+  // Safety: if both get linked at any time, run joint detection
+  useEffect(() => {
+    if (state.linkedA && state.linkedB) {
+      (window as any).__runDetection?.(state.userA.transactions, state.userB?.transactions);
+    }
+  }, [state.linkedA, state.linkedB]);
+
 
   // Render a compact pattern string (no "last …" – that's already the Date column)
   const dowShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

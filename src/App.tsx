@@ -102,64 +102,76 @@ function App() {
   }, []);
 
   // Helper: run detection for single or joint mode
-  const runDetection = async (txA: Transaction[], txB?: Transaction[]) => {
+  const runDetection = async (txA?: Transaction[], txB?: Transaction[]) => {
     if (!apiRef.current) return;
-    
-    console.log('[runDetection] Starting detection for:', { 
-      txALength: txA.length, 
-      txBLength: txB?.length,
-      mode: txB ? 'joint' : 'single',
-      sampleTxA: txA.slice(0, 3).map(t => ({ desc: t.description, amount: t.amount, date: t.dateISO })),
-      sampleTxB: txB?.slice(0, 3).map(t => ({ desc: t.description, amount: t.amount, date: t.dateISO })),
-      txBExists: !!txB,
+
+    // Normalize to arrays so we never read `.length` of undefined
+    const A: Transaction[] = Array.isArray(txA) ? txA : [];
+    const B: Transaction[] = Array.isArray(txB) ? txB : [];
+
+    const slim = (t: Transaction) => ({ desc: t.description, amount: t.amount, date: t.dateISO });
+
+    console.log('[runDetection] Starting detection for:', {
+      txALength: A.length,
+      txBLength: B.length,
+      mode: B.length ? 'joint' : 'single',
+      sampleTxA: A.slice(0, 3).map(slim),
+      sampleTxB: B.slice(0, 3).map(slim),
+      txBExists: txB != null,
+      txBIsArray: Array.isArray(txB),
       txBType: typeof txB,
-      txBIsArray: Array.isArray(txB)
     });
-    
-    const resA = await apiRef.current.analyzeTransactions(txA);
-    console.log('[runDetection] Results A:', { 
-      salaries: resA.salaries?.length, 
+
+    const resA = await apiRef.current.analyzeTransactions(A);
+    console.log('[runDetection] Results A:', {
+      salaries: resA.salaries?.length,
       recurring: resA.recurring?.length,
       sampleSalary: resA.salaries?.[0],
-      sampleRecurring: resA.recurring?.[0]
+      sampleRecurring: resA.recurring?.[0],
     });
-    
-    // For joint mode, also analyze user B's transactions
-    let resB;
-    if (txB) {
-      console.log('[runDetection] Analyzing B transactions...');
-      resB = await apiRef.current.analyzeTransactions(txB);
-      console.log('[runDetection] Results B:', { 
-        salaries: resB.salaries?.length, 
+
+    let resB: any | undefined = undefined;
+    if (B.length) {
+      console.log('[runDetection] Analyzing B transactions…');
+      resB = await apiRef.current.analyzeTransactions(B);
+      console.log('[runDetection] Results B:', {
+        salaries: resB.salaries?.length,
         recurring: resB.recurring?.length,
         sampleSalary: resB.salaries?.[0],
         sampleRecurring: resB.recurring?.[0],
-        allRecurring: resB.recurring
       });
     }
-    
-    // Store both A and B results for the UI to access
-    setDetected({ 
-      salaries: resA.salaries || [], 
-      recurring: resA.recurring || [],
-      // Add B's data as separate properties
-      salariesB: resB?.salaries || [],
-      recurringB: resB?.recurring || []
+
+    // Store into Zustand for Index.tsx to hydrate from
+    setDetected({
+      salaries: resA.salaries ?? [],
+      recurring: resA.recurring ?? [],
+      salariesB: resB?.salaries ?? [],
+      recurringB: resB?.recurring ?? [],
     });
-    
+
     console.log('[runDetection] Stored in zustand:', {
       salariesA: resA.salaries?.length,
-      recurringA: resA.recurring?.length,  
+      recurringA: resA.recurring?.length,
       salariesB: resB?.salaries?.length,
-      recurringB: resB?.recurring?.length
+      recurringB: resB?.recurring?.length,
     });
 
-    // 1) Salary for user A
-    const cA = resA.salaries?.[0];
+    // --- inputs/bills population (unchanged except using A/B) ---
+    const toMonthly = (amount: number, freq: PayFrequency) =>
+      freq === 'weekly' ? (amount * 52) / 12 :
+      freq === 'fortnightly' ? (amount * 26) / 12 :
+      freq === 'four_weekly' ? (amount * 13) / 12 : amount;
+
+    const lastPayDate = (tx: Transaction[], amount: number) =>
+      tx.filter(t => t.amount > 0 && Math.abs(t.amount - amount) <= 1)
+        .map(t => t.dateISO).sort().pop();
+
     const inputsUpdate: any = {};
 
+    const cA = resA.salaries?.[0];
     if (cA) {
-      const lastA = lastPayDate(txA, cA.amount);
+      const lastA = lastPayDate(A, cA.amount);
       inputsUpdate.a = {
         netMonthly: toMonthly(cA.amount, cA.freq),
         freq: cA.freq,
@@ -167,12 +179,11 @@ function App() {
       };
       inputsUpdate.startISO = inputsUpdate.a.firstPayISO;
     }
-    
-    // 2) For joint mode, also set user B's salary
+
     if (resB) {
       const cB = resB.salaries?.[0];
       if (cB) {
-        const lastB = txB ? lastPayDate(txB, cB.amount) : undefined;
+        const lastB = lastPayDate(B, cB.amount);
         const firstB = nextPayDate(cB.freq, lastB || cB.firstSeen);
         inputsUpdate.b = {
           netMonthly: toMonthly(cB.amount, cB.freq),
@@ -183,33 +194,32 @@ function App() {
           ? (inputsUpdate.startISO < firstB ? inputsUpdate.startISO : firstB)
           : firstB;
       }
-      inputsUpdate.mode = "joint";
+      inputsUpdate.mode = 'joint';
     } else {
-      inputsUpdate.mode = "single";
+      inputsUpdate.mode = 'single';
     }
 
-    // 3) Bills: combine bills from both users if in joint mode
-    const billsA = (resA.recurring ?? []).map((r, i) => ({
+    const billsA = (resA.recurring ?? []).map((r: any, i: number) => ({
       id: `det-a-${i}`,
       name: r.description,
       amount: r.amount,
-      account: "A" as const,
+      account: 'A' as const,
       dueDateISO: r.sampleDates?.[r.sampleDates.length - 1],
     }));
-    
-    const billsB = resB ? (resB.recurring ?? []).map((r, i) => ({
+    const billsB = resB ? (resB.recurring ?? []).map((r: any, i: number) => ({
       id: `det-b-${i}`,
       name: r.description,
       amount: r.amount,
-      account: "B" as const,
+      account: 'B' as const,
       dueDateISO: r.sampleDates?.[r.sampleDates.length - 1],
     })) : [];
-    
+
     inputsUpdate.bills = [...billsA, ...billsB];
-    
+
     setInputs(inputsUpdate);
     await recalc();
   };
+
 
   // AUTO-LOAD: start with single mode using mock A (only if not manually triggered)
   const [hasManualSelection, setHasManualSelection] = useState(false);
@@ -240,7 +250,7 @@ function App() {
     if (ready && apiRef.current) {
       (window as any).__workerAPI = apiRef.current;
       (window as any).__switchToJointMode = switchToJointMode;
-      (window as any).__runDetection = (txA: Transaction[], txB?: Transaction[]) => {
+      (window as any).__runDetection = (txA?: Transaction[], txB?: Transaction[]) => {
         setHasManualSelection(true); // Mark as manual selection
         return runDetection(txA, txB);
       };
