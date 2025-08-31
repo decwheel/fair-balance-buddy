@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
+import { useLinkAccount } from '@/hooks/useLinkAccount';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { usePlanStore } from '@/store/usePlanStore';
@@ -6,12 +8,12 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
-import { 
-  Calculator, 
-  Users, 
-  TrendingUp, 
-  Lightbulb, 
-  CheckCircle, 
+import {
+  Calculator,
+  Users,
+  TrendingUp,
+  Lightbulb,
+  CheckCircle,
   AlertCircle,
   Euro,
   Calendar as CalendarIcon,
@@ -57,6 +59,8 @@ interface AppState {
     transactions: Transaction[];
     paySchedule: PaySchedule | null;
   };
+  linkedA: boolean;
+  linkedB: boolean;
   wageConfirmedA: boolean;
   wageConfirmedB?: boolean;
   bills: Bill[];
@@ -82,6 +86,8 @@ const Index = () => {
 const [state, setState] = useState<AppState>({
   mode: 'single',
   userA: { transactions: [], paySchedule: null },
+  linkedA: false,
+  linkedB: false,
   bills: [],
   wageConfirmedA: false,
   includedBillIds: [],
@@ -96,6 +102,14 @@ const [state, setState] = useState<AppState>({
   weeklyAllowanceA: 100,
   weeklyAllowanceB: 100
 });
+
+  // live / mock toggle (Vite)
+  const useMock = (import.meta.env.VITE_USE_MOCK_GC ?? 'true') === 'true';
+  // institution list (live mode)
+  const [institutions, setInstitutions] = useState<{id:string; name:string}[]>([]);
+  const [instA, setInstA] = useState<{ id: string; name: string } | null>(null);
+  const [instB, setInstB] = useState<{ id: string; name: string } | null>(null);
+  const { link, busy } = useLinkAccount();
 
   const [billDialogOpen, setBillDialogOpen] = useState(false);
   const [billEditing, setBillEditing] = useState<Bill | null>(null);
@@ -115,60 +129,52 @@ const [state, setState] = useState<AppState>({
 
   // Load mock bank data
   const loadBankData = async (mode: 'single' | 'joint') => {
-           setState(prev => ({ ...prev, isLoading: true }));
-    
-    try {
-      const transactionsA = await loadMockTransactionsA();
-      const categorizedA = categorizeBankTransactions(transactionsA);
-      const payScheduleA = extractPayScheduleFromWages(categorizedA.wages);
-
-      let userB = undefined;
-      if (mode === 'joint') {
-        const transactionsB = await loadMockTransactionsB();
-        const categorizedB = categorizeBankTransactions(transactionsB);
-        const payScheduleB = extractPayScheduleFromWages(categorizedB.wages);
-        userB = { transactions: transactionsB, paySchedule: payScheduleB };
+    // LIVE mode: go straight to bank step and load institutions
+    if (!useMock) {
+      setState(prev => ({ ...prev, mode, step: 'bank', isLoading: true }));
+      try {
+        const { data, error } = await supabase.functions.invoke('get_institutions');
+        if (error) throw error;
+        const list = Array.isArray(data) ? data : (data.institutions ?? data.results ?? []);
+        setInstitutions(list.map((i: any) => ({ id: i.id, name: i.name })));
+      } catch (err) {
+        console.error('get_institutions failed:', err);
+      } finally {
+        setState(prev => ({ ...prev, isLoading: false }));
       }
-
-      // ❌ Don’t seed UI bills from mock categorisation.
-      // We want the worker’s detections to be the source of truth shown in the table.
-
-        setState(prev => ({
-  ...prev,
-  mode,
-  userA: { transactions: transactionsA, paySchedule: payScheduleA },
-  userB,
-  // ⚠️ Keep whatever the worker may have already populated
-  bills: prev.bills,
-  includedBillIds: prev.includedBillIds,
-  isLoading: false,
-  step: 'bank'
-}));
-
-      // 🔌 NEW: Trigger worker detection system
-      const switchToJointMode = (window as any).__switchToJointMode;
-      const runDetection = (window as any).__runDetection;
-      
-      if (mode === 'joint' && switchToJointMode) {
-        console.log('[loadBankData] Triggering joint mode detection...');
-        await switchToJointMode();
-      } else if (mode === 'single' && runDetection) {
-        console.log('[loadBankData] Triggering single mode detection...');
-        const { mapBoiToTransactions } = await import('../lib/txMap');
-        const mockA = await import('../fixtures/mock-a-boi-transactions.json');
-        const txA = mapBoiToTransactions(mockA as any);
-        await runDetection(txA);
-      }
-    } catch (error) {
-      console.error('Failed to load bank data:', error);
-      setState(prev => ({ ...prev, isLoading: false }));
+      return;
     }
+
+    // MOCK mode: do NOT preload anything; show only the link buttons.
+    // Also purge any previously-hydrated detected bills so the table starts empty.
+    setState(prev => ({
+      ...prev,
+      mode,
+      step: 'bank',
+      isLoading: false,
+      linkedA: false,
+      linkedB: false,
+      bills: prev.bills.filter(
+        b => (b as any).source !== 'detected' && !String(b.id || '').startsWith('det-')
+      ),
+      includedBillIds: prev.includedBillIds.filter(
+        id => !String(id || '').startsWith('det-')
+      )
+    }));
   };
+
+  useEffect(() => {
+    console.log('[VITE_SUPABASE_URL]', import.meta.env.VITE_SUPABASE_URL);
+    console.log('[VITE_SUPABASE_ANON_KEY]', (import.meta.env.VITE_SUPABASE_ANON_KEY || '').slice(0, 10) + '...');
+    console.log('[VITE_USE_MOCK_GC]', import.meta.env.VITE_USE_MOCK_GC);
+  }, []);
 
   // 🔁 NEW: whenever worker/store detections change, hydrate the page state from them
   useEffect(() => {
-    if (!detected || (!recurringFromStore.length && !recurringFromStoreB.length)) return;
-    
+    if (!detected) return;
+    // Only import worker bills after at least one partner has linked this session
+    if (!state.linkedA && !state.linkedB) return;
+
     console.log('[Index] Processing detected data:', {
       recurringA: recurringFromStore.length,
       recurringB: recurringFromStoreB.length,
@@ -177,12 +183,13 @@ const [state, setState] = useState<AppState>({
       recurringFromStore: recurringFromStore,
       recurringFromStoreB: recurringFromStoreB
     });
-    
+
     // Map worker-recurring → UI Bill[] and collect display metadata (freq, last, dueDay)
     const meta: RecurringMeta = {};
-    
-    // Process User A's bills
-    const importedFromDetectedA: Bill[] = recurringFromStore.map((r, i) => {
+
+    // Process User A's bills (only if A is linked)
+    const importedFromDetectedA: Bill[] = state.linkedA
+      ? recurringFromStore.map((r, i) => {
       const lastDate =
         (r.sampleDates && r.sampleDates.length
           ? [...r.sampleDates].sort().slice(-1)[0]
@@ -202,11 +209,16 @@ const [state, setState] = useState<AppState>({
         dueDate: lastDate,
         source: 'detected' as any,
         movable: false,
+        // @ts-ignore – UI-only field
+        owner: 'A',
       };
-    });
+      })
+    : [];
 
-    // Process User B's bills (for joint mode)
-    const importedFromDetectedB: Bill[] = recurringFromStoreB.map((r, i) => {
+    // Process User B's bills (only if B is linked)
+    const importedFromDetectedB: Bill[] =
+      (state.mode === 'joint' && state.linkedB)
+        ? recurringFromStoreB.map((r, i) => {
       const lastDate =
         (r.sampleDates && r.sampleDates.length
           ? [...r.sampleDates].sort().slice(-1)[0]
@@ -220,17 +232,20 @@ const [state, setState] = useState<AppState>({
       };
       return {
         id,
-        name: `[B] ${r.description}`, // Prefix with [B] to distinguish
+        name: r.description,
         amount: r.amount,
         issueDate: lastDate,
         dueDate: lastDate,
         source: 'detected' as any,
         movable: false,
+        // @ts-ignore – UI-only field
+        owner: 'B',
       };
-    });
+    })
+    : [];
 
     const allImportedBills = [...importedFromDetectedA, ...importedFromDetectedB];
-    
+
     console.log('[Index] Final bill processing:', {
       importedFromDetectedA: importedFromDetectedA.length,
       importedFromDetectedB: importedFromDetectedB.length,
@@ -238,7 +253,7 @@ const [state, setState] = useState<AppState>({
       sampleA: importedFromDetectedA[0]?.name,
       sampleB: importedFromDetectedB[0]?.name
     });
-    
+
     setRecurringMeta(meta);
     setState(prev => ({
         ...prev,
@@ -252,7 +267,70 @@ const [state, setState] = useState<AppState>({
         includedBillIds: allImportedBills.map(b => b.id!),
       }));
     // Re-run when worker detections are present OR when bank data loads
-    }, [detected, state.userA.transactions.length]);  
+    }, [detected, state.userA.transactions.length]);
+
+  // When useLinkAccount (mock) dispatches transactions → hydrate state for that partner
+  useEffect(() => {
+    const onTx = (e: any) => {
+      if (!e?.detail) return;
+      const { partner, transactions } = e.detail as { partner: 'A'|'B'; transactions: Transaction[] };
+      const categorized = categorizeBankTransactions(transactions);
+      const pay = extractPayScheduleFromWages(categorized.wages);
+      setState(prev => ({
+        ...prev,
+        ...(partner === 'A'
+          ? { userA: { transactions, paySchedule: pay }, linkedA: true }
+          : {
+              userB: { transactions, paySchedule: pay } as any,
+              linkedB: true,
+              mode: prev.mode === 'single' ? 'joint' : prev.mode
+            }),
+        step: 'bank'
+      }));
+    };
+    window.addEventListener('gc:transactions' as any, onTx);
+    return () => window.removeEventListener('gc:transactions' as any, onTx);
+  }, []);
+  +
+  // After user finishes bank auth (live), callback posts a message → pull transactions
+  useEffect(() => {
+    const handler = async (e: MessageEvent<any>) => {
+      if (!e?.data || e.data.type !== 'GC_LINK_DONE') return;
+      const { partner, requisitionId } = e.data as { partner: 'A'|'B'; requisitionId: string };
+      // Optionally show "checking with bank..." by toggling isLoading
+      setState(prev => ({ ...prev, isLoading: true, step: 'bank' }));
+      const { data, error } = await supabase.functions.invoke('gc_pull', {
+        body: { requisitionId, partner }
+      });
+      setState(prev => ({ ...prev, isLoading: false }));
+      if (error) {
+        console.error('gc_pull error:', error);
+        alert(`Pull failed: ${(error as any)?.message || (error as any)?.context || 'Unknown'}`);
+        return;
+      }
+      const txs = Array.isArray(data) ? data : (data.transactions ?? []);
+      const categorized = categorizeBankTransactions(txs);
+      const pay = extractPayScheduleFromWages(categorized.wages);
+      setState(prev => ({
+        ...prev,
+        ...(partner === 'A'
+          ? { userA: { transactions: txs, paySchedule: pay }, linkedA: true }
+          : {
+              userB: { transactions: txs, paySchedule: pay } as any,
+              linkedB: true,
+              mode: prev.mode === 'single' ? 'joint' : prev.mode
+            }),
+        step: 'bank'
+      }));
+    };
+    window.addEventListener('message', handler);
+    const bc = new BroadcastChannel('fair-balance-buddy');
+    bc.onmessage = handler as any;
+    return () => {
+      window.removeEventListener('message', handler);
+      bc.close();
+    };
+  }, []);
 
   // Render a compact pattern string (no "last …" – that's already the Date column)
   const dowShort = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -720,7 +798,7 @@ const [state, setState] = useState<AppState>({
             FairSplit
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Smart cash-flow forecasting and bill smoothing for Irish households. 
+            Smart cash-flow forecasting and bill smoothing for Irish households.
             Calculate optimal deposits to keep your balance above zero.
           </p>
         </div>
@@ -738,8 +816,8 @@ const [state, setState] = useState<AppState>({
               <div key={key} className="flex flex-col items-center space-y-2 cursor-pointer" onClick={() => setState(prev => ({ ...prev, step: key as AppState['step'] }))}>
                 <div className={`
                   w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors
-                  ${state.step === key 
-                    ? 'bg-primary border-primary text-primary-foreground' 
+                  ${state.step === key
+                    ? 'bg-primary border-primary text-primary-foreground'
                     : 'border-border text-muted-foreground'
                   }
                 `}>
@@ -772,7 +850,7 @@ const [state, setState] = useState<AppState>({
                   <span className="font-medium">Single Account</span>
                   <span className="text-xs text-muted-foreground">Individual forecasting</span>
                 </Button>
-                
+
                 <Button
                   variant="outline"
                   className="h-24 flex flex-col space-y-2"
@@ -784,7 +862,7 @@ const [state, setState] = useState<AppState>({
                   <span className="text-xs text-muted-foreground">Couple's forecasting</span>
                 </Button>
               </div>
-              
+
               {state.isLoading && (
                 <div className="space-y-2">
                   <Progress value={undefined} />
@@ -804,6 +882,87 @@ const [state, setState] = useState<AppState>({
               <CardDescription>Confirm detected pay schedules, wages, and bills for each person.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-8">
+              {state.isLoading && (
+                <div className="flex flex-col items-center gap-2 text-sm text-muted-foreground">
+                  <Progress value={undefined} className="w-1/2" />
+                  <p>Fetching bank institutions…</p>
+                </div>
+              )}
+              {/* Link accounts (A & B) */}
+              <div className="rounded-xl border p-4">
+                <h3 className="font-semibold mb-3">Link accounts</h3>
+                <div className="grid md:grid-cols-2 gap-4">
+                  {/* Partner A */}
+                  <div className="rounded-lg border p-3">
+                    <div className="text-sm mb-2">Person A</div>
+                    {useMock ? (
+                      <Button onClick={() => link('A')} disabled={busy === 'A'}>
+                        {busy === 'A' ? 'Linking…' : 'Link account (A)'}
+                      </Button>
+                    ) : (
+                      <>
+                        <Input
+                          list="instListA"
+                          placeholder="Choose bank…"
+                          className="mb-2"
+                          onChange={(e) => {
+                            const chosen = institutions.find(i => i.name === e.target.value);
+                            setInstA(chosen ?? null);
+                          }}
+                        />
+                        <datalist id="instListA">
+                          {institutions.slice(0, 50).map(i => (
+                            <option key={i.id} value={i.name} />
+                          ))}
+                        </datalist>
+                        <Button
+                          onClick={() => instA && link('A', instA.id)}
+                          disabled={!instA || busy === 'A'}
+                        >
+                          {busy === 'A' ? 'Opening bank…' : 'Link account (A)'}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {/* Partner B */}
+                  <div className="rounded-lg border p-3">
+                    <div className="text-sm mb-2">Person B</div>
+                    {useMock ? (
+                      <Button onClick={() => link('B')} disabled={busy === 'B'}>
+                        {busy === 'B' ? 'Linking…' : 'Link account (B)'}
+                      </Button>
+                    ) : (
+                      <>
+                        <Input
+                          list="instListB"
+                          placeholder="Choose bank…"
+                          className="mb-2"
+                          onChange={(e) => {
+                            const chosen = institutions.find(i => i.name === e.target.value);
+                            setInstB(chosen ?? null);
+                          }}
+                        />
+                        <datalist id="instListB">
+                          {institutions.slice(0, 50).map(i => (
+                            <option key={i.id} value={i.name} />
+                          ))}
+                        </datalist>
+                        <Button
+                          onClick={() => instB && link('B', instB.id)}
+                          disabled={!instB || busy === 'B'}
+                        >
+                          {busy === 'B' ? 'Opening bank…' : 'Link account (B)'}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {!useMock && (
+                  <p className="text-xs text-muted mt-2">
+                    You’ll authenticate with your bank in a new tab. Return here when finished.
+                  </p>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">Person A</p>
@@ -890,8 +1049,10 @@ const [state, setState] = useState<AppState>({
                 return (
                   <div className="space-y-8">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {wageBlock('Person A', state.userA.paySchedule, a.wages, 'A')}
-                      {state.mode === 'joint' && state.userB && b && wageBlock('Person B', state.userB.paySchedule, b.wages, 'B')}
+                      {state.linkedA &&
+                        wageBlock('Person A', state.userA.paySchedule, a.wages, 'A')}
+                      {state.mode === 'joint' && state.userB && state.linkedB && b &&
+                        wageBlock('Person B', state.userB.paySchedule, b.wages, 'B')}
                     </div>
 
                     <div className="space-y-3">
@@ -902,6 +1063,7 @@ const [state, setState] = useState<AppState>({
                             <TableRow>
                               <TableHead className="w-12">Include</TableHead>
                               <TableHead>Date</TableHead>
+                              <TableHead>Owner</TableHead>
                               <TableHead>Name</TableHead>
                               <TableHead>Pattern</TableHead>
                               <TableHead className="text-right">Amount (€)</TableHead>
@@ -923,13 +1085,16 @@ const [state, setState] = useState<AppState>({
                                     />
                                   </TableCell>
                                   <TableCell className="text-sm">{b.dueDate}</TableCell>
+                                  <TableCell className="text-sm">
+                                    {(b as any).owner ?? (String(b.id).startsWith('det-b') ? 'B' : 'A')}
+                                  </TableCell>
                                    <TableCell className="text-sm p-2">
                                      <Input
                                        value={b.name}
                                        onChange={(e) => {
                                          setState(prev => ({
                                            ...prev,
-                                           bills: prev.bills.map(bill => 
+                                           bills: prev.bills.map(bill =>
                                              bill.id === b.id ? { ...bill, name: e.target.value } : bill
                                            )
                                          }));
@@ -949,7 +1114,7 @@ const [state, setState] = useState<AppState>({
                                          const newAmount = parseFloat(e.target.value) || 0;
                                          setState(prev => ({
                                            ...prev,
-                                           bills: prev.bills.map(bill => 
+                                           bills: prev.bills.map(bill =>
                                              bill.id === b.id ? { ...bill, amount: newAmount } : bill
                                            )
                                          }));
@@ -1194,7 +1359,7 @@ const [state, setState] = useState<AppState>({
                     </p>
                     <p className="text-sm text-muted-foreground">per pay period</p>
                   </div>
-                  
+
                   {state.mode === 'joint' && typeof state.forecastResult.depositB === 'number' && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Person B Deposit</p>
@@ -1205,7 +1370,7 @@ const [state, setState] = useState<AppState>({
                     </div>
                   )}
                 </div>
-                
+
                 {state.forecastResult.minBalance >= 0 ? (
                   <Alert className="mt-4 border-success">
                     <CheckCircle className="w-4 h-4 text-success" />
@@ -1373,8 +1538,8 @@ const [state, setState] = useState<AppState>({
               );
             })()}
 
-            <Button 
-              variant="outline" 
+            <Button
+              variant="outline"
               onClick={() => setState(prev => ({ ...prev, step: 'setup', forecastResult: null }))}
             >
               Start New Forecast
