@@ -62,7 +62,6 @@ export async function extractBillPdfText(file: File): Promise<string> {
 
     // Try to spin up a dedicated worker (Vite supports ?worker import)
     try {
-      // @ts-expect-error - Vite's ?worker import typing
       const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?worker')).default;
       if (pdfjs?.GlobalWorkerOptions) {
         pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();

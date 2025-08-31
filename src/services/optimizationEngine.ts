@@ -281,7 +281,7 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
           movable: true
         }));
         
-        const payDatesA = payDates(payScheduleA.anchorDate, mapFrequency(inputs.a.freq), 12);
+        const payDatesA = payDates(payScheduleA.anchorDate, inputs.a.freq, 12);
         const alignedStart = payDatesA.find(d => d >= testDate) || payDatesA[0];
 
         const optimalDeposit = findDepositSingleSimple(alignedStart, payScheduleA, bills, inputs.minBalance);
@@ -322,8 +322,8 @@ export function findOptimalStartDate(inputs: PlanInputs): OptimizationResult {
           ? inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b)
           : 0.5;
           
-        const payDatesA = payDates(payScheduleA.anchorDate, mapFrequency(inputs.a.freq), 12);
-        const payDatesB = payDates(payScheduleB.anchorDate, mapFrequency(inputs.b.freq), 12);
+        const payDatesA = payDates(payScheduleA.anchorDate, inputs.a.freq, 12);
+        const payDatesB = payDates(payScheduleB.anchorDate, inputs.b.freq, 12);
         const firstA = payDatesA.find(d => d >= testDate) || payDatesA[0];
         const firstB = payDatesB.find(d => d >= testDate) || payDatesB[0];
         const alignedStart = firstA < firstB ? firstA : firstB;

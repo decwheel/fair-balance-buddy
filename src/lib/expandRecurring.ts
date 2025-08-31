@@ -1,4 +1,4 @@
-import type { Bill } from "../services/forecastAdapters";
+import type { Bill } from "../types";
 import type { RecurringItem } from "../types";
 
 /* Local helpers to avoid cross-file churn */
@@ -53,8 +53,8 @@ export function expandRecurringItem(r: RecurringItem, startISO: string, months: 
       amount: r.amount,
       issueDate: iso,
       dueDate: iso,
-      account: "JOINT",
-      source: "imported",
+      account: "JOINT" as const,
+      source: "imported" as const,
       movable: false,
     });
 
@@ -70,7 +70,7 @@ export function expandRecurringItem(r: RecurringItem, startISO: string, months: 
       push(cursor);
       cursor = addDays(cursor, 7);
     }
-  } else if ((r.freq === "fortnightly" || r.freq === "biweekly") && typeof r.dayOfWeek === "number") {
+  } else if (r.freq === "fortnightly" && typeof r.dayOfWeek === "number") {
     cursor = nextDOWOnOrAfter(startISO, r.dayOfWeek);
     while (cursor <= endISO) {
       push(cursor);

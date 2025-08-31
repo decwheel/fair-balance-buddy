@@ -374,7 +374,8 @@ const [state, setState] = useState<AppState>({
           issueDate: bill.period.start,
           dueDate,
           source: 'predicted-electricity' as const,
-          movable: true
+          movable: true,
+          account: "JOINT" as const,
         });
       });
 
@@ -390,13 +391,32 @@ const [state, setState] = useState<AppState>({
       };
     });
 
-    usePlanStore.getState().setInputs({ elecPredicted: electricityBills });
-    const api = (window as any).__workerAPI;
-    if (api) {
-      const currentInputs = { ...usePlanStore.getState().inputs, elecPredicted: electricityBills } as PlanInputs;
-      api.simulate(currentInputs).then(res => {
-        usePlanStore.getState().setResult(res);
-      }).catch(err => console.error('[forecast] worker sim failed:', err));
+    // Store the electricity bills in the plan store
+    if (predicted.length > 0) {
+      const currentElecBills = predicted.map((bill, index) => {
+        const dueDate = anchorDue ? addDaysISO(anchorDue, index * periodDays) : bill.period.end;
+        return ({
+          id: `elec_${index}`,
+          name: `${tariff.supplier} ${tariff.plan} — Bill ${index + 1}`,
+          amount: bill.totalInclVat,
+          issueDate: bill.period.start,
+          dueDate,
+          source: 'predicted-electricity' as const,
+          movable: true,
+          account: "JOINT" as const,
+          dueDateISO: dueDate,
+        });
+      });
+
+      usePlanStore.getState().setInputs({ elecPredicted: currentElecBills });
+      const api = (window as any).__workerAPI;
+      if (api) {
+        const currentInputs = { ...usePlanStore.getState().inputs, elecPredicted: currentElecBills } as PlanInputs;
+        api.simulate(currentInputs).then(res => {
+          usePlanStore.getState().setResult(res);
+        }).catch(err => console.error('[forecast] worker sim failed:', err));
+      }
+    }
     }
   };
 
@@ -417,10 +437,10 @@ const [state, setState] = useState<AppState>({
     try {
       const elecPredicted = (currentState.bills ?? [])
         .filter(b => b.source === 'predicted-electricity')
-        .map(b => ({ ...b, account: 'JOINT' as const, source: 'electricity' as const }));
+        .map(b => ({ ...b, source: 'predicted-electricity' as const }));
       const manual = (currentState.bills ?? [])
         .filter(b => b.source === 'manual')
-        .map(b => ({ ...b, account: b.account ?? 'JOINT', source: b.source ?? 'manual' }));
+        .map(b => ({ ...b, source: b.source ?? 'manual' as const }));
 
       const firstPayDate = currentState.userB?.paySchedule
         ? (currentState.userA.paySchedule!.anchorDate < currentState.userB.paySchedule.anchorDate

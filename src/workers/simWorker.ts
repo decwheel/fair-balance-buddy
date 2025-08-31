@@ -15,11 +15,22 @@ import { generateBillSuggestions } from "../services/optimizationEngine";
 // Minimal non-blocking skeleton.
 function simulate(inputs: PlanInputs): SimResult {
   const allBillsRaw = [...(inputs.bills ?? []), ...(inputs.elecPredicted ?? [])];
-  const allBills = allBillsRaw.filter(b => !b.dueDate || b.dueDate >= inputs.startISO);
-  const payScheduleA = { frequency: inputs.a.freq.toUpperCase(), anchorDate: inputs.a.firstPayISO } as const;
+  const allBills = allBillsRaw.filter(b => !b.dueDateISO || b.dueDateISO >= inputs.startISO).map(b => ({
+    ...b,
+    issueDate: b.dueDateISO || b.dueDate || inputs.startISO,
+    dueDate: b.dueDateISO || b.dueDate || inputs.startISO,
+    source: b.source === 'electricity' ? 'predicted-electricity' as const : b.source
+  }));
+  const payScheduleA = { 
+    frequency: inputs.a.freq.toUpperCase().replace('FORTNIGHTLY', 'BIWEEKLY') as 'WEEKLY' | 'BIWEEKLY' | 'FOUR_WEEKLY' | 'MONTHLY', 
+    anchorDate: inputs.a.firstPayISO 
+  };
 
   if (inputs.b) {
-    const payScheduleB = { frequency: inputs.b.freq.toUpperCase(), anchorDate: inputs.b.firstPayISO } as const;
+    const payScheduleB = { 
+      frequency: inputs.b.freq.toUpperCase().replace('FORTNIGHTLY', 'BIWEEKLY') as 'WEEKLY' | 'BIWEEKLY' | 'FOUR_WEEKLY' | 'MONTHLY', 
+      anchorDate: inputs.b.firstPayISO 
+    };
 
     const monthlyA = inputs.a.netMonthly;
     const monthlyB = inputs.b.netMonthly;
@@ -100,7 +111,6 @@ function simulate(inputs: PlanInputs): SimResult {
 function analyzeTransactions(tx: Transaction[]): { salaries: SalaryCandidate[]; recurring: RecurringItem[] } {
   const salaries = detectSalaryCandidates(tx);
     const recurring = detectRecurringBillsFromTx(tx);
-    // @ts-expect-error Worker console appears under the "Worker" target in DevTools
     console.log("[simWorker] analyze:", {
     salaries: salaries.slice(0, 3),
     recurring: recurring.slice(0, 8),

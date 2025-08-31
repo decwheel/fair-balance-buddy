@@ -23,7 +23,7 @@ const queryClient = new QueryClient();
 function toMonthly(amount: number, freq: PayFrequency): number {
   const cycles =
     freq === "weekly" ? 52 / 12 :
-    freq === "fortnightly" || freq === "biweekly" ? 26 / 12 :
+    freq === "fortnightly" ? 26 / 12 :
     freq === "four_weekly" ? 13 / 12 : 1;
   return amount * cycles;
 }

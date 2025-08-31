@@ -6,9 +6,12 @@ export type Bill = {
   amount: number;            // euros
   dueDay?: number;           // 1..31 for monthly DDs
   dueDateISO?: string;       // for one-offs (e.g., predicted electricity)
+  dueDate?: string;          // alias for dueDateISO for compatibility
   isVariable?: boolean;      // electricity etc.
   account: "A" | "B" | "JOINT";
   movable?: boolean;         // whether the bill can be moved to optimize deposits
+  source?: "manual" | "predicted-electricity" | "imported" | "electricity";
+  issueDate?: string;        // for compatibility with forecastAdapters
 };
 
 export type Transaction = {
