@@ -351,20 +351,19 @@ const [state, setState] = useState<AppState>({
   };
 
   const handleTariffExtracted = (tariff: TariffRates) => {
+    const predicted = state.electricityReadings.length
+      ? predictBills({
+          mode: state.electricityMode,
+          readings: state.electricityReadings,
+          tariff,
+          months: 12
+        })
+      : [];
+
+    const periodDays = tariff.billingPeriodDays ?? (state.electricityMode === 'bills6' ? 61 : 60);
+    const anchorDue = tariff.nextDueDate;
+
     setState(prev => {
-      const predicted = prev.electricityReadings.length
-        ? predictBills({
-            mode: prev.electricityMode,
-            readings: prev.electricityReadings,
-            tariff,
-            months: 12
-          })
-        : [];
-
-      const periodDays = tariff.billingPeriodDays ?? (prev.electricityMode === 'bills6' ? 61 : 60);
-
-      const anchorDue = tariff.nextDueDate;
-
       const electricityBills: Bill[] = predicted.map((bill, index) => {
         const dueDate = anchorDue ? addDaysISO(anchorDue, index * periodDays) : bill.period.end;
         return ({
@@ -416,7 +415,6 @@ const [state, setState] = useState<AppState>({
           usePlanStore.getState().setResult(res);
         }).catch(err => console.error('[forecast] worker sim failed:', err));
       }
-    }
     }
   };
 
@@ -500,8 +498,18 @@ const [state, setState] = useState<AppState>({
       }
 
       // Use the same start the solver will use
-      const allBills = rollForwardPastBills(mergedBills, startDate)
-        .filter(b => !b.dueDate || b.dueDate >= startDate);
+      const allBills = rollForwardPastBills(
+        mergedBills.map(b => ({
+          id: b.id || '',
+          name: b.name,
+          amount: b.amount,
+          issueDate: b.issueDate || (b as any).dueDateISO || b.dueDate || startDate,
+          dueDate: b.dueDate || (b as any).dueDateISO || startDate,
+          source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as "manual" | "predicted-electricity" | "imported",
+          movable: b.movable
+        })), 
+        startDate
+      ).filter(b => !b.dueDate || b.dueDate >= startDate);
 
       if (currentState.mode === 'single') {
           // Use optimized deposits from worker result if available, otherwise use old forecast
