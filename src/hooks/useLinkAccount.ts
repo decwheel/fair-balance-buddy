@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { supabase } from '@/lib/supabaseClient';
+import { supabase } from '@/integrations/supabase/client';
 
 // If your “boi” fixtures need mapping, keep normalizeMock.
 // Otherwise you can swap to your own mapBoiToTransactions helper.
