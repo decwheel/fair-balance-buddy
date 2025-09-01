@@ -18,6 +18,7 @@ export interface TariffRates {
   };
   billingPeriodDays?: number;
   nextDueDate?: string;        // ISO yyyy-mm-dd if detected from bill
+  lastBillPeriodEnd?: string;  // ISO yyyy-mm-dd, end of the last billed period
   confidence: number; // 0-1 confidence in extraction
   discounts?: DiscountRules;    // optional bill discounts inferred from last bill
   fitRate?: number;             // optional Feed-in Tariff €/kWh
@@ -207,11 +208,14 @@ const parseDate = (s: string): Date | null => {
 const toIso = (d: Date) => d.toISOString().split('T')[0];
 
 if (periodMatch) {
-  billingPeriod = {
-    start: periodMatch[1],
-    end: periodMatch[2],
-    days: parseInt(periodMatch[3], 10)
-  };
+// normalise to ISO
+const ps = parseDate(periodMatch[1]);
+const pe = parseDate(periodMatch[2]);
+billingPeriod = ps && pe ? {
+  start: toIso(ps),
+  end: toIso(pe),
+  days: parseInt(periodMatch[3], 10)
+} : undefined;
   confidence += confidencePoints.billingPeriod;
 } else {
   // Look for two dates without explicit "(xx days)"
@@ -311,6 +315,7 @@ if (dueText) {
     vatRate,
     rates,
     billingPeriodDays: billingPeriod?.days,
+    lastBillPeriodEnd: billingPeriod?.end,
     nextDueDate: nextDueDateIso,
     confidence: finalConfidence
   };

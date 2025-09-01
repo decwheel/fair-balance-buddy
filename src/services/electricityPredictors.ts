@@ -3,6 +3,8 @@ import { TariffRates } from '@/services/billPdf';
 import { BillEstimate } from '@/services/tariffEngine';
 import { resolveBand, TimeBandRules, STANDARD_IRISH_BANDS } from '@/utils/timeBands';
 import { deriveMonthlyWeightsFromReadings, firstOfNextMonth, lastOfMonth } from '@/utils/seasonalWeights';
+// Tiny helper to avoid adding a dependency
+const addDays = (d: Date, n: number) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
 export type ElectricityMode = 'csv' | 'bills6' | 'billsSome';
 
@@ -42,8 +44,12 @@ export function predictBills(params: {
   // Infer billing cycle
   const explicitDays = Number(tariff.billingPeriodDays || 0) || undefined;
   const cycleDays = explicitDays ?? (mode === 'bills6' ? 61 : mode === 'billsSome' ? 61 : undefined);
-  const hasCycle = Boolean(cycleDays);
-  const anchorDue = tariff.nextDueDate ? new Date(tariff.nextDueDate) : null;
+  const hasCycle = typeof cycleDays === 'number';
+  // Inputs we might have from PDF parsing
+  const lastDue = tariff.nextDueDate ? new Date(tariff.nextDueDate) : null;
+  const lastPeriodEndPdf = (tariff as any).lastBillPeriodEnd
+    ? new Date((tariff as any).lastBillPeriodEnd)
+    : null;
 
   // If we can't infer a cycle length, fallback to calendar-month prediction
   if (!hasCycle) {
@@ -62,14 +68,18 @@ export function predictBills(params: {
   const horizonDays = Math.round(months * 30.4);
   const N = Math.max(1, Math.ceil(horizonDays / (cycleDays as number)));
 
-  // Determine first period end (due date) and start
-  let firstEnd: Date;
-  if (anchorDue) {
-    firstEnd = anchorDue;
-  } else {
-    // Anchor at the end of next month to approximate real-world cycles
-    firstEnd = lastOfMonth(firstOfNextMonth(new Date(lastTs)));
-  }
+  // Anchor logic (fair-split):
+  // 1) Prefer the last bill PERIOD END from PDF (exact).
+  // 2) Else derive last period END from last DUE DATE: due = end + 15  ⇒  end = due - 15.
+  // 3) Else fallback to last CSV reading's date (treat as last END).
+  const lastEnd =
+    lastPeriodEndPdf
+      ? lastPeriodEndPdf
+      : lastDue
+        ? addDays(lastDue, -15)
+        : new Date(lastTs);
+  // First predicted period: start = lastEnd, end = start + (cycleDays - 1)
+  const firstEnd = addDays(lastEnd, (cycleDays as number) - 1);
   const bills: BillEstimate[] = [];
   for (let i = 0; i < N; i++) {
     const end = new Date(firstEnd);
@@ -78,7 +88,13 @@ export function predictBills(params: {
     start.setDate(end.getDate() - (cycleDays as number) + 1);
 
     const periodKwh = estimateKwhForPeriod(start, end, annualKwh, monthWeights);
-    bills.push(buildBill(start, end, periodKwh, bandPercentages, tariff));
+    const bill = buildBill(start, end, periodKwh, bandPercentages, tariff) as any;
+    // fair-split style auxiliary dates:
+    const issued = addDays(end, 1);   // fair-split
+    const due    = addDays(issued, 14);
+    bill.issuedDate = issued.toISOString().slice(0,10);
+    bill.dueDate    = due.toISOString().slice(0,10);
+    bills.push(bill);
   }
 
   return bills;

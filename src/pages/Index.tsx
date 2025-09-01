@@ -42,6 +42,9 @@ import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs 
 import { useToast } from '@/components/ui/use-toast';
 import { expandRecurring } from '../lib/expandRecurring';
 
+// Identify electricity vendors from bank-recurring
+const ELEC_VENDOR = /BORD G[ÁA]IS|ELECTRIC IRELAND|SSE|ENERGIA|FLOGAS|PINERGY|PREPAYPOWER/i;
+
 // UI metadata used to render the Pattern column (keep anchor, drop "last …")
 type RecurringMeta = Record<
   string,
@@ -369,28 +372,41 @@ const [state, setState] = useState<AppState>({
         })
       : [];
 
-    const periodDays = tariff.billingPeriodDays ?? (state.electricityMode === 'bills6' ? 61 : 60);
-    const anchorDue = tariff.nextDueDate;
 
     setState(prev => {
+      // Use the predictor’s own issued/due dates (parity with fair-split)
       const electricityBills: Bill[] = predicted.map((bill, index) => {
-        const dueDate = anchorDue ? addDaysISO(anchorDue, index * periodDays) : bill.period.end;
-        return ({
+        const issued = (bill as any).issuedDate ?? bill.period.end; // fallback if not set
+        const due    = (bill as any).dueDate    ?? bill.period.end;
+        return {
           id: `elec_${index}`,
           name: `${tariff.supplier} ${tariff.plan} — Bill ${index + 1}`,
           amount: bill.totalInclVat,
-          issueDate: bill.period.start,
-          dueDate,
+          issueDate: issued,
+          dueDate: due,
           source: 'predicted-electricity' as const,
           movable: true,
-          account: "JOINT" as const,
-        });
+          account: 'JOINT' as const,
+        };
+      });
+
+      // Drop future electricity BANK recurrences in favour of predictions
+      const firstPredStart = predicted[0]?.period.start
+        ? new Date(predicted[0].period.start)
+        : null;
+      const billsSansFutureElec = prev.bills.filter(b => {
+        if (!firstPredStart) return true;
+        const name = (b.name || '').toString();
+        const isElec = ELEC_VENDOR.test(name);
+        if (!isElec) return true;
+        const d = new Date(b.dueDate || b.issueDate || '1900-01-01');
+        return d < firstPredStart; // keep only past electricity bank items
       });
 
       return {
         ...prev,
         tariffRates: tariff,
-        bills: electricityBills.length ? [...prev.bills, ...electricityBills] : prev.bills,
+        bills: electricityBills.length ? [...billsSansFutureElec, ...electricityBills] : prev.bills,
         includedBillIds: electricityBills.length ? Array.from(new Set([
           ...prev.includedBillIds,
           ...electricityBills.map(b => b.id!)
@@ -402,18 +418,19 @@ const [state, setState] = useState<AppState>({
     // Store the electricity bills in the plan store
     if (predicted.length > 0) {
       const currentElecBills = predicted.map((bill, index) => {
-        const dueDate = anchorDue ? addDaysISO(anchorDue, index * periodDays) : bill.period.end;
-        return ({
+        const issued = (bill as any).issuedDate ?? bill.period.end;
+        const due    = (bill as any).dueDate    ?? bill.period.end;
+        return {
           id: `elec_${index}`,
           name: `${tariff.supplier} ${tariff.plan} — Bill ${index + 1}`,
           amount: bill.totalInclVat,
-          issueDate: bill.period.start,
-          dueDate,
+          issueDate: issued,
+          dueDate: due,
           source: 'predicted-electricity' as const,
           movable: true,
-          account: "JOINT" as const,
-          dueDateISO: dueDate,
-        });
+          account: 'JOINT' as const,
+          dueDateISO: due,
+        };
       });
 
       usePlanStore.getState().setInputs({ elecPredicted: currentElecBills });
