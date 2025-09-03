@@ -1,0 +1,83 @@
+// Mock implementation of your existing calculateForecastFromMany function
+// Replace this with import from your actual utils/forecast-many.js
+export function calculateForecastFromMany(input) {
+    const { startDate, initialBalance, payDatesA, payDatesB, depositA, depositB, bills, fairnessRatioA, weeklyAllowanceA = 0, weeklyAllowanceB = 0, buffer } = input;
+    // Create timeline of events
+    const events = [];
+    // Add Person A deposits
+    payDatesA.forEach(date => {
+        events.push({
+            date,
+            amount: depositA,
+            description: `Person A Deposit (€${depositA.toFixed(2)})`
+        });
+    });
+    // Add Person B deposits  
+    payDatesB.forEach(date => {
+        events.push({
+            date,
+            amount: depositB,
+            description: `Person B Deposit (€${depositB.toFixed(2)})`
+        });
+    });
+    // Add allowances (weekly)
+    if (weeklyAllowanceA > 0 || weeklyAllowanceB > 0) {
+        const start = new Date(startDate);
+        const end = new Date(startDate);
+        end.setMonth(end.getMonth() + input.months);
+        let current = new Date(start);
+        while (current <= end) {
+            if (weeklyAllowanceA > 0) {
+                events.push({
+                    date: current.toISOString().split('T')[0],
+                    amount: -weeklyAllowanceA,
+                    description: `Person A Allowance (€${weeklyAllowanceA.toFixed(2)})`
+                });
+            }
+            if (weeklyAllowanceB > 0) {
+                events.push({
+                    date: current.toISOString().split('T')[0],
+                    amount: -weeklyAllowanceB,
+                    description: `Person B Allowance (€${weeklyAllowanceB.toFixed(2)})`
+                });
+            }
+            current.setDate(current.getDate() + 7); // Weekly
+        }
+    }
+    // Add bills (split by fairness ratio)
+    bills.forEach(bill => {
+        const amountA = bill.amount * fairnessRatioA;
+        const amountB = bill.amount * (1 - fairnessRatioA);
+        events.push({
+            date: bill.dueDate,
+            amount: -(amountA + amountB), // Total bill amount
+            description: `${bill.name} (A: €${amountA.toFixed(2)}, B: €${amountB.toFixed(2)})`
+        });
+    });
+    // Sort events by date
+    events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    // Calculate running balance (only from startDate onward)
+    const timeline = [];
+    let currentBalance = initialBalance;
+    let minBalance = currentBalance;
+    // Add starting point
+    timeline.push({ date: startDate, balance: currentBalance });
+    const startTs = new Date(startDate).getTime();
+    const futureEvents = events.filter(e => new Date(e.date).getTime() >= startTs);
+    futureEvents.forEach(event => {
+        currentBalance += event.amount;
+        timeline.push({
+            date: event.date,
+            balance: currentBalance,
+            event: event.description
+        });
+        if (currentBalance < minBalance) {
+            minBalance = currentBalance;
+        }
+    });
+    return {
+        minBalance: minBalance - buffer,
+        endBalance: currentBalance,
+        timeline
+    };
+}

@@ -10,17 +10,24 @@ import type {
 } from "../types";
 import { detectSalaryCandidates, detectRecurringBillsFromTx } from "../lib/recurring";
 import { findDepositSingle, findDepositJoint, runSingle, runJoint } from "../services/forecastAdapters";
+import { planJointDeposits, planSingleDeposit } from "../services/depositPlanner";
 import { generateBillSuggestions } from "../services/optimizationEngine";
 
 // Minimal non-blocking skeleton.
 function simulate(inputs: PlanInputs): SimResult {
-  const allBillsRaw = [...(inputs.bills ?? []), ...(inputs.elecPredicted ?? [])];
-  const allBills = allBillsRaw.filter(b => !b.dueDateISO || b.dueDateISO >= inputs.startISO).map(b => ({
-    ...b,
-    issueDate: b.dueDateISO || b.dueDate || inputs.startISO,
-    dueDate: b.dueDateISO || b.dueDate || inputs.startISO,
-    source: b.source === 'electricity' ? 'predicted-electricity' as const : b.source
-  }));
+  // Build adapter-bill arrays in a consistent shape
+  const mapToAdapter = (arr: any[] = []) => arr
+    .filter(b => !b.dueDateISO || b.dueDateISO >= inputs.startISO)
+    .map(b => ({
+      ...b,
+      issueDate: b.dueDateISO || b.dueDate || inputs.startISO,
+      dueDate: b.dueDateISO || b.dueDate || inputs.startISO,
+      source: b.source === 'electricity' ? 'predicted-electricity' as const : b.source
+    }));
+
+  const billsNonElectric = mapToAdapter(inputs.bills ?? []);
+  const elecBills        = mapToAdapter(inputs.elecPredicted ?? []);
+  const allBills         = [...billsNonElectric, ...elecBills];
   const payScheduleA = { 
     frequency: inputs.a.freq.toUpperCase().replace('FORTNIGHTLY', 'BIWEEKLY') as 'WEEKLY' | 'BIWEEKLY' | 'FOUR_WEEKLY' | 'MONTHLY', 
     anchorDate: inputs.a.firstPayISO 
@@ -46,23 +53,20 @@ function simulate(inputs: PlanInputs): SimResult {
     const effB = monthlyB - allowanceB - sumB - jointShareB;
     const fairnessRatioA = effA + effB > 0 ? effA / (effA + effB) : 0.5;
 
-    const { depositA, depositB } = findDepositJoint(
-      inputs.startISO,
-      payScheduleA,
-      payScheduleB,
-      allBills,
-      fairnessRatioA,
-      0
-    );
-    const result = runJoint(
-      depositA,
-      depositB,
-      inputs.startISO,
-      payScheduleA,
-      payScheduleB,
-      allBills,
-      { months: 12, fairnessRatioA }
-    );
+    // Fair-split deposit planner
+    const planned = planJointDeposits({
+      inputs,
+      startISO: inputs.startISO,
+      payA: payScheduleA,
+      payB: payScheduleB,
+      billsNonElectric,
+      elecPredicted: elecBills,
+      allBillsForTimeline: allBills,
+      minBalance: inputs.minBalance ?? 0,
+    });
+    const depositA = planned.depositPerPayA;
+    const depositB = planned.depositPerPayB;
+    const result = { minBalance: planned.minBalance, endBalance: planned.endBalance, timeline: planned.timeline };
 
     let billSuggestions: SimResult['billSuggestions'] = [];
     try {
@@ -84,8 +88,16 @@ function simulate(inputs: PlanInputs): SimResult {
       billSuggestions,
     };
   } else {
-    const depositA = findDepositSingle(inputs.startISO, payScheduleA, allBills, 0);
-    const result = runSingle(depositA, inputs.startISO, payScheduleA, allBills, { months: 12, buffer: 0 });
+    const planned = planSingleDeposit({
+      startISO: inputs.startISO,
+      pay: payScheduleA,
+      billsNonElectric,
+      elecPredicted: elecBills,
+      allBillsForTimeline: allBills,
+      minBalance: inputs.minBalance ?? 0,
+    });
+    const depositA = planned.depositPerPay;
+    const result = { minBalance: planned.minBalance, endBalance: planned.endBalance, timeline: planned.timeline };
 
     let billSuggestions: SimResult['billSuggestions'] = [];
     try {

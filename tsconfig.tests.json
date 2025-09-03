@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2020", "DOM"],
+    "strict": false,
+    "noEmit": false,
+    "outDir": "dist-tests",
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "allowJs": false,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": [
+    "src/services/depositPlanner.ts",
+    "src/services/forecastAdapters.ts",
+    "src/utils/**/*.ts",
+    "src/types.ts",
+    "tests/**/*.ts"
+  ]
+}

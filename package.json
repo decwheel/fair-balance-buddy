@@ -9,6 +9,7 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint --ext .ts,.tsx src --max-warnings=0",
     "lint:fix": "eslint --ext .ts,.tsx src --fix",
+    "test": "tsc -p tsconfig.tests.json && node dist-tests/tests/depositPlanner.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
