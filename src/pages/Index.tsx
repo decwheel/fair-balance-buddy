@@ -78,6 +78,8 @@ interface AppState {
   } | null;
   isLoading: boolean;
   step: 'setup' | 'bank' | 'energy' | 'forecast' | 'results';
+  // Setup sub-phase: remain under 'setup' for couple flow selection and placeholder
+  setupPhase?: 'choose-mode' | 'choose-couple-type' | 'separate-placeholder';
   selectedDate: string | null; // for calendar selection
   electricityMode: ElectricityMode;
   pots: SavingsPot[];
@@ -99,6 +101,7 @@ const [state, setState] = useState<AppState>({
   forecastResult: null,
   isLoading: false,
   step: 'setup',
+  setupPhase: 'choose-mode',
   selectedDate: null,
   electricityMode: 'csv',
   pots: [],
@@ -884,12 +887,12 @@ const [state, setState] = useState<AppState>({
         </div>
 
         {/* Step Content */}
-        {state.step === 'setup' && (
+        {state.step === 'setup' && state.setupPhase === 'choose-mode' && (
           <Card className="max-w-2xl mx-auto">
             <CardHeader>
               <CardTitle>Choose Your Mode</CardTitle>
               <CardDescription>
-                Select whether you're forecasting for yourself or a joint account
+                Select whether you're forecasting for yourself or a couple
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -901,18 +904,18 @@ const [state, setState] = useState<AppState>({
                   disabled={state.isLoading}
                 >
                   <Calculator className="w-6 h-6" />
-                  <span className="font-medium">Single Account</span>
+                  <span className="font-medium">Single</span>
                   <span className="text-xs text-muted-foreground">Individual forecasting</span>
                 </Button>
 
                 <Button
                   variant="outline"
                   className="h-24 flex flex-col space-y-2"
-                  onClick={() => loadBankData('joint')}
+                  onClick={() => setState(prev => ({ ...prev, setupPhase: 'choose-couple-type' }))}
                   disabled={state.isLoading}
                 >
                   <Users className="w-6 h-6" />
-                  <span className="font-medium">Joint Account</span>
+                  <span className="font-medium">Couple</span>
                   <span className="text-xs text-muted-foreground">Couple's forecasting</span>
                 </Button>
               </div>
@@ -925,6 +928,66 @@ const [state, setState] = useState<AppState>({
                   </p>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {state.step === 'setup' && state.setupPhase === 'choose-couple-type' && (
+          <Card className="max-w-2xl mx-auto">
+            <CardHeader>
+              <CardTitle>Couple Setup</CardTitle>
+              <CardDescription>
+                Pick how you want to set up your couple forecast
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col space-y-2"
+                  onClick={() => setState(prev => ({ ...prev, setupPhase: 'separate-placeholder' }))}
+                >
+                  <Calculator className="w-6 h-6" />
+                  <span className="font-medium">Separate Accounts</span>
+                  <span className="text-xs text-muted-foreground">Two individuals, combined plan</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="h-24 flex flex-col space-y-2"
+                  onClick={() => loadBankData('joint')}
+                  disabled={state.isLoading}
+                >
+                  <Users className="w-6 h-6" />
+                  <span className="font-medium">Joint Account</span>
+                  <span className="text-xs text-muted-foreground">Shared account forecasting</span>
+                </Button>
+              </div>
+              <div className="flex justify-between">
+                <Button variant="ghost" onClick={() => setState(prev => ({ ...prev, setupPhase: 'choose-mode' }))}>Back</Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {state.step === 'setup' && state.setupPhase === 'separate-placeholder' && (
+          <Card className="max-w-2xl mx-auto">
+            <CardHeader>
+              <CardTitle>Separate Accounts (Coming Soon)</CardTitle>
+              <CardDescription>
+                We’re building this flow. For now, you can go back and choose Joint Account.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <Alert>
+                <AlertDescription>
+                  Placeholder: Separate Accounts will let each person link their own account and combine plans without a shared joint account.
+                </AlertDescription>
+              </Alert>
+              <div className="flex justify-between">
+                <Button variant="ghost" onClick={() => setState(prev => ({ ...prev, setupPhase: 'choose-couple-type' }))}>Back</Button>
+                <Button onClick={() => setState(prev => ({ ...prev, setupPhase: 'choose-couple-type' }))}>Choose Different Option</Button>
+              </div>
             </CardContent>
           </Card>
         )}
@@ -945,7 +1008,7 @@ const [state, setState] = useState<AppState>({
               {/* Link accounts (A & B) */}
               <div className="rounded-xl border p-4">
                 <h3 className="font-semibold mb-3">Link accounts</h3>
-                <div className="grid md:grid-cols-2 gap-4">
+                <div className={`grid gap-4 ${state.mode === 'joint' ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
                   {/* Partner A */}
                   <div className="rounded-lg border p-3">
                     <div className="text-sm mb-2">Person A</div>
@@ -979,37 +1042,39 @@ const [state, setState] = useState<AppState>({
                     )}
                   </div>
                   {/* Partner B */}
-                  <div className="rounded-lg border p-3">
-                    <div className="text-sm mb-2">Person B</div>
-                    {useMock ? (
-                      <Button onClick={() => link('B')} disabled={busy === 'B'}>
-                        {busy === 'B' ? 'Linking…' : 'Link account (B)'}
-                      </Button>
-                    ) : (
-                      <>
-                        <Input
-                          list="instListB"
-                          placeholder="Choose bank…"
-                          className="mb-2"
-                          onChange={(e) => {
-                            const chosen = institutions.find(i => i.name === e.target.value);
-                            setInstB(chosen ?? null);
-                          }}
-                        />
-                        <datalist id="instListB">
-                          {institutions.slice(0, 50).map(i => (
-                            <option key={i.id} value={i.name} />
-                          ))}
-                        </datalist>
-                        <Button
-                          onClick={() => instB && link('B', instB.id)}
-                          disabled={!instB || busy === 'B'}
-                        >
-                          {busy === 'B' ? 'Opening bank…' : 'Link account (B)'}
+                  {state.mode === 'joint' && (
+                    <div className="rounded-lg border p-3">
+                      <div className="text-sm mb-2">Person B</div>
+                      {useMock ? (
+                        <Button onClick={() => link('B')} disabled={busy === 'B'}>
+                          {busy === 'B' ? 'Linking…' : 'Link account (B)'}
                         </Button>
-                      </>
-                    )}
-                  </div>
+                      ) : (
+                        <>
+                          <Input
+                            list="instListB"
+                            placeholder="Choose bank…"
+                            className="mb-2"
+                            onChange={(e) => {
+                              const chosen = institutions.find(i => i.name === e.target.value);
+                              setInstB(chosen ?? null);
+                            }}
+                          />
+                          <datalist id="instListB">
+                            {institutions.slice(0, 50).map(i => (
+                              <option key={i.id} value={i.name} />
+                            ))}
+                          </datalist>
+                          <Button
+                            onClick={() => instB && link('B', instB.id)}
+                            disabled={!instB || busy === 'B'}
+                          >
+                            {busy === 'B' ? 'Opening bank…' : 'Link account (B)'}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {!useMock && (
                   <p className="text-xs text-muted mt-2">
