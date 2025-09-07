@@ -55,31 +55,9 @@ export function calculateForecastFromMany(input: ForecastManyInput): ForecastRes
     });
   });
   
-  // Add allowances (weekly)
-  if (weeklyAllowanceA > 0 || weeklyAllowanceB > 0) {
-    const start = new Date(startDate);
-    const end = new Date(startDate);
-    end.setMonth(end.getMonth() + input.months);
-    
-    let current = new Date(start);
-    while (current <= end) {
-      if (weeklyAllowanceA > 0) {
-        events.push({
-          date: current.toISOString().split('T')[0],
-          amount: -weeklyAllowanceA,
-          description: `Person A Allowance (€${weeklyAllowanceA.toFixed(2)})`
-        });
-      }
-      if (weeklyAllowanceB > 0) {
-        events.push({
-          date: current.toISOString().split('T')[0],
-          amount: -weeklyAllowanceB,
-          description: `Person B Allowance (€${weeklyAllowanceB.toFixed(2)})`
-        });
-      }
-      current.setDate(current.getDate() + 7); // Weekly
-    }
-  }
+  // Note: Weekly allowances are NOT transacted through the joint account timeline in fair-split.
+  // They reduce each partner's available monthly budget, and are accounted for in the optimizer,
+  // not as debits on the joint timeline.
   
   // Add bills (split by fairness ratio)
   bills.forEach(bill => {

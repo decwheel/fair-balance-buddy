@@ -60,6 +60,7 @@ export type SimResult = {
   requiredDepositA: number;
   requiredDepositB?: number;
   entries: TimelineEntry[];
+  startISO?: string;
   billSuggestions?: Array<{
     billId: string;
     currentDate: string;

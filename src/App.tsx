@@ -17,6 +17,7 @@ import { mapBoiToTransactions } from "./lib/txMap";
 import { addDaysISO, nextBusinessDay } from "./utils/dateUtils";
 // ✅ Vite worker import – gives you a Worker constructor
 import SimWorker from "./workers/simWorker.ts?worker";
+import { expandRecurring } from "./lib/expandRecurring";
 
 const queryClient = new QueryClient();
 
@@ -199,22 +200,15 @@ function App() {
       inputsUpdate.mode = 'single';
     }
 
-    const billsA = (resA.recurring ?? []).map((r: any, i: number) => ({
-      id: `det-a-${i}`,
-      name: r.description,
-      amount: r.amount,
-      account: 'A' as const,
-      dueDateISO: r.sampleDates?.[r.sampleDates.length - 1],
-    }));
-    const billsB = resB ? (resB.recurring ?? []).map((r: any, i: number) => ({
-      id: `det-b-${i}`,
-      name: r.description,
-      amount: r.amount,
-      account: 'B' as const,
-      dueDateISO: r.sampleDates?.[r.sampleDates.length - 1],
-    })) : [];
-
-    inputsUpdate.bills = [...billsA, ...billsB];
+    // Expand detected recurring items into a 12‑month schedule (like fair-split)
+    const startISO: string | undefined = inputsUpdate.startISO || inputs.startISO;
+    if (startISO) {
+      const expandedA = expandRecurring(resA.recurring ?? [], startISO, 12, 'det-a-');
+      const expandedB = resB ? expandRecurring(resB.recurring ?? [], startISO, 12, 'det-b-') : [];
+      inputsUpdate.bills = [...expandedA, ...expandedB];
+    } else {
+      inputsUpdate.bills = [];
+    }
 
     setInputs(inputsUpdate);
     await recalc();

@@ -125,6 +125,18 @@ const [state, setState] = useState<AppState>({
   const [newPotAmount, setNewPotAmount] = useState<number>(0);
   const [newPotOwner, setNewPotOwner] = useState<'A' | 'B' | 'JOINT'>('A');
 
+  // Helper: cycles per month for presenting monthly-equivalents
+  const cyclesPerMonth = (freq?: string) => {
+    switch ((freq || '').toUpperCase()) {
+      case 'WEEKLY': return 52 / 12;
+      case 'FORTNIGHTLY':
+      case 'BIWEEKLY': return 26 / 12;
+      case 'FOUR_WEEKLY': return 13 / 12;
+      case 'MONTHLY':
+      default: return 1;
+    }
+  };
+
   // 🔌 NEW: read worker detections (salary + recurring) from the store
   const { detected, inputs, result: storeResult } = usePlanStore();
   const topSalary: SalaryCandidate | undefined = detected?.salaries?.[0];
@@ -292,7 +304,7 @@ const [state, setState] = useState<AppState>({
         return nextState;
       });
 
-      const txA = nextState.userA.transactions ?? [];
+      const txA = nextState.userA?.transactions ?? [];
       const txB = nextState.userB?.transactions ?? [];
       (window as any).__runDetection?.(txA, txB);
     };
@@ -678,12 +690,16 @@ const [state, setState] = useState<AppState>({
         if (useWorkerOptimization) {
           depositA = workerResult.requiredDepositA!;
           depositB = workerResult.requiredDepositB!;
+          // Align start date with worker pick to ensure minBalance consistency
+          const startFromWorker = workerResult.startISO || startDate;
+          const psAAligned: PaySchedule = { ...payScheduleA, anchorDate: startFromWorker };
+          const psBAligned: PaySchedule = { ...payScheduleB, anchorDate: startFromWorker };
           simResult = runJoint(
             depositA,
             depositB,
-            startDate,
-            payScheduleA,
-            payScheduleB,
+            startFromWorker,
+            psAAligned,
+            psBAligned,
             allBills,
             { months: 12, fairnessRatioA }
           );
@@ -1477,6 +1493,9 @@ const [state, setState] = useState<AppState>({
                       {formatCurrency(state.forecastResult.depositA)}
                     </p>
                     <p className="text-sm text-muted-foreground">per pay period</p>
+                    <p className="text-xs text-muted-foreground">
+                      ≈ {formatCurrency((state.forecastResult.depositA || 0) * cyclesPerMonth(state.userA.paySchedule?.frequency))} per month
+                    </p>
                   </div>
 
                   {state.mode === 'joint' && typeof state.forecastResult.depositB === 'number' && (
@@ -1486,6 +1505,9 @@ const [state, setState] = useState<AppState>({
                         {formatCurrency(state.forecastResult.depositB)}
                       </p>
                       <p className="text-sm text-muted-foreground">per pay period</p>
+                      <p className="text-xs text-muted-foreground">
+                        ≈ {formatCurrency((state.forecastResult.depositB || 0) * cyclesPerMonth(state.userB?.paySchedule?.frequency))} per month
+                      </p>
                     </div>
                   )}
                 </div>
