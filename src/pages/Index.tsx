@@ -144,6 +144,8 @@ const [state, setState] = useState<AppState>({
   // Results: Cash Flow Summary view toggles
   const [summaryView, setSummaryView] = useState<'household'|'person'>('household');
   const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
+  // Focused category for Household donut (hover/tap)
+  const [householdFocus, setHouseholdFocus] = useState<string | null>(null);
 
   // Access plan store early so hooks below can depend on it safely
   const { detected, inputs, result: storeResult } = usePlanStore();
@@ -1895,7 +1897,7 @@ const [state, setState] = useState<AppState>({
                   <PiggyBank className="w-6 h-6" />
                   Optimized Deposit{state.mode === 'joint' ? 's' : ''}
                 </CardTitle>
-                <CardDescription>
+                <CardDescription className="text-foreground">
                   These amounts are calculated using advanced optimization to minimize deposits while maintaining positive balance.
                 </CardDescription>
               </CardHeader>
@@ -1905,11 +1907,11 @@ const [state, setState] = useState<AppState>({
                     <p className="text-sm font-medium">
                       {state.mode === 'joint' ? 'Person A' : 'Your'} Deposit
                     </p>
-                    <p className="text-3xl font-bold text-primary">
+                    <p className="text-3xl font-bold text-foreground">
                       {formatCurrency(state.forecastResult.depositA)}
                     </p>
-                    <p className="text-sm text-muted-foreground">per pay period</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm text-foreground">per pay period</p>
+                    <p className="text-xs text-foreground">
                       ≈ {formatCurrency((state.forecastResult.depositA || 0) * cyclesPerMonth(state.userA.paySchedule?.frequency))} per month
                     </p>
                   </div>
@@ -1917,11 +1919,11 @@ const [state, setState] = useState<AppState>({
                   {state.mode === 'joint' && typeof state.forecastResult.depositB === 'number' && (
                     <div className="space-y-2">
                       <p className="text-sm font-medium">Person B Deposit</p>
-                      <p className="text-3xl font-bold text-primary">
+                      <p className="text-3xl font-bold text-foreground">
                         {formatCurrency(state.forecastResult.depositB)}
                       </p>
-                      <p className="text-sm text-muted-foreground">per pay period</p>
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-sm text-foreground">per pay period</p>
+                      <p className="text-xs text-foreground">
                         ≈ {formatCurrency((state.forecastResult.depositB || 0) * cyclesPerMonth(state.userB?.paySchedule?.frequency))} per month
                       </p>
                     </div>
@@ -1959,7 +1961,7 @@ const [state, setState] = useState<AppState>({
                       Optimization Suggestions
                     </h4>
                     <div className="flex items-center justify-between mb-2">
-                      <p className="text-xs text-muted-foreground">
+                      <p className="text-xs text-foreground">
                         {storeResult?.billSuggestions?.length
                           ? `${storeResult.billSuggestions.length} suggestion${storeResult.billSuggestions.length === 1 ? '' : 's'} available`
                           : (dateMoves.length > 0 ? 'All suggested changes applied' : 'No suggestions found yet')}
@@ -2004,7 +2006,7 @@ const [state, setState] = useState<AppState>({
                   <div className="flex flex-col items-center justify-center">
                     <span className="leading-none">{date.getDate()}</span>
                     <span className={`text-[10px] leading-none ${isNeg ? 'text-destructive' : 'text-muted-foreground'}`}>
-                      {Math.round(bal)}
+                      €{Math.round(bal)}
                     </span>
                     {hasEvents && <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />}
                   </div>
@@ -2018,7 +2020,6 @@ const [state, setState] = useState<AppState>({
                 setState(prev => ({ ...prev, selectedDate: iso }));
               };
               const selectedEvents = selectedDate ? (eventsByDate.get(selectedDate) || []) : [];
-              const billsOnSelected = selectedDate ? state.bills.filter(b => b.dueDate === selectedDate) : [];
 
               return (
                 <Card>
@@ -2047,41 +2048,45 @@ const [state, setState] = useState<AppState>({
                           <TabsTrigger value="savings">Savings</TabsTrigger>
                         </TabsList>
                         <TabsContent value="transactions" className="space-y-4">
-                      <div>
-                        <p className="text-sm font-medium mb-2">Transactions on Selected Date</p>
-                        {selectedDate ? (
-                          selectedEvents.length ? (
-                            <ul className="list-disc pl-5 space-y-2">
-                              {selectedEvents.map((e, i) => (
-                                <li key={i}>{e}</li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="text-sm text-muted-foreground">No transactions on {selectedDate}.</p>
-                          )
-                        ) : (
-                          <p className="text-sm text-muted-foreground">Pick a date to view transactions.</p>
-                        )}
-                      </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-sm font-medium">Transactions</p>
+                              <Button size="sm" onClick={() => setBillDialogOpen(true)} disabled={!selectedDate}>Add New Bill</Button>
+                            </div>
+                            {selectedDate ? (
+                              selectedEvents.length ? (
+                                <ul className="list-disc pl-5 space-y-2">
+                                  {selectedEvents.map((e, i) => {
+                                    const sumAB = (s: string): number | null => {
+                                      let total = 0;
+                                      let found = false;
+                                      const re = /(?:^|[,(])\s*(A|B)\s*:\s*€?\s*([0-9]+(?:[.,][0-9]{1,2})?)/gi;
+                                      let m: RegExpExecArray | null;
+                                      while ((m = re.exec(s)) !== null) {
+                                        const n = parseFloat((m[2] || '').replace(',', '.'));
+                                        if (!Number.isNaN(n)) { total += n; found = true; }
+                                      }
+                                      return found ? total : null;
+                                    };
 
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-sm font-medium">Bills on this date</p>
-                          <Button size="sm" onClick={() => setBillDialogOpen(true)} disabled={!selectedDate}>Add Bill</Button>
-                        </div>
-                        {selectedDate && billsOnSelected.length > 0 ? (
-                          <ul className="space-y-2">
-                            {billsOnSelected.map((b) => (
-                              <li key={b.id} className="flex items-center justify-between text-sm">
-                                <span className="truncate mr-2">{b.name} — {formatCurrency(b.amount)}</span>
-                                <Button size="sm" variant="outline" onClick={() => { setBillEditing(b); setBillDialogOpen(true); }}>Edit</Button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No saved bills on this date.</p>
-                        )}
-                      </div>
+                                    const cleaned = e
+                                      .replace(/\s*\((?=[^)]*(?:A\s*:|B\s*:))[^)]*\)/g, (match) => {
+                                        const total = sumAB(match);
+                                        return total != null ? ` (€${total.toFixed(2)})` : '';
+                                      })
+                                      .replace(/\s{2,}/g, ' ')
+                                      .trim();
+
+                                    return <li key={i}>{cleaned}</li>;
+                                  })}
+                                </ul>
+                              ) : (
+                                <p className="text-sm text-muted-foreground">No transactions on {selectedDate}.</p>
+                              )
+                            ) : (
+                              <p className="text-sm text-muted-foreground">Pick a date to view transactions.</p>
+                            )}
+                          </div>
                         </TabsContent>
                         <TabsContent value="savings">
                           {(() => {
@@ -2327,18 +2332,8 @@ const [state, setState] = useState<AppState>({
                 leftover: 'hsl(var(--success))'
               };
 
-              const renderCustomizedLabel = (props: any) => {
-                const { cx, cy, midAngle, innerRadius, outerRadius, percent } = props;
-                const RADIAN = Math.PI / 180;
-                const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
-                const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                const y = cy + radius * Math.sin(-midAngle * RADIAN);
-                return percent > 0.05 ? (
-                  <text x={x} y={y} fill="#fff" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" className="text-[10px]">
-                    {(percent * 100).toFixed(0)}%
-                  </text>
-                ) : null;
-              };
+              // No slice labels: show details only on hover
+              const renderCustomizedLabel = undefined as unknown as any;
 
               const LegendFmt = (value: any) => <span className="text-sm">{value}</span>;
               const fairnessRatioA = (monthlyDepositA + monthlyDepositB) > 0 ? (monthlyDepositA / (monthlyDepositA + monthlyDepositB)) : 1;
@@ -2391,56 +2386,128 @@ const [state, setState] = useState<AppState>({
                           leftover: 'hsl(var(--success))'
                         };
                         const total = data.reduce((s,d)=>s+d.value,0) || 1;
+                        // Build inner split ring data: A/B for each category in order
+                        const innerData = [
+                          { cat: 'Bills', who: 'A', value: monthlyDepositA },
+                          { cat: 'Bills', who: 'B', value: monthlyDepositB },
+                          { cat: 'Weekly allowance', who: 'A', value: allowanceMonthlyA },
+                          { cat: 'Weekly allowance', who: 'B', value: allowanceMonthlyB },
+                          { cat: 'Savings', who: 'A', value: savingsMonthlyA },
+                          { cat: 'Savings', who: 'B', value: savingsMonthlyB },
+                          { cat: 'Leftover', who: 'A', value: leftoverA },
+                          { cat: 'Leftover', who: 'B', value: leftoverB }
+                        ];
+                        // Tooltip: show only inner ring (A/B split). Suppress outer ring tooltip box.
                         const tooltip = ({ active, payload }: any) => {
                           if (!active || !payload || !payload.length) return null;
                           const p = payload[0];
-                          const percent = ((p.value/total)*100).toFixed(0)+'%';
-                          return <div className="text-xs p-2 rounded border bg-card">{p.name}: <strong>{formatCurrency(p.value)}</strong> ({percent})</div>;
+                          const d: any = p.payload || {};
+                          if (d && (d.who === 'A' || d.who === 'B')) {
+                            const sumCat = innerData.filter(x => x.cat === d.cat).reduce((s, x) => s + x.value, 0) || 1;
+                            const ratio = Math.round((d.value / sumCat) * 100) + '%';
+                            return <div className="text-xs p-2 rounded border bg-card">{d.who}: <strong>{ratio}</strong></div>;
+                          } else {
+                            // Outer ring hover: no tooltip
+                            return null;
+                          }
                         };
+                        const focusedName = householdFocus;
+                        const selectedItem = focusedName ? data.find(d => d.name === focusedName) : undefined;
+                        const selectedValue = selectedItem?.value ?? 0;
+                        const selectedPct = selectedItem ? Math.round((selectedValue / total) * 100) : null;
+
                         return (
                           <div className="grid grid-cols-1">
-                            <div className="h-72 relative">
+                            <div className="h-96 relative" onMouseLeave={() => setHouseholdFocus(null)}>
                               <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
-                                  <Pie data={data} dataKey="value" nameKey="name" innerRadius={70} outerRadius={110} labelLine={false}>
+                                  <Pie
+                                    data={data}
+                                    dataKey="value"
+                                    nameKey="name"
+                                    innerRadius={120}
+                                    outerRadius={160}
+                                    labelLine={false}
+                                    label={false}
+                                    onMouseEnter={(d: any) => setHouseholdFocus(d?.name)}
+                                    onMouseLeave={() => setHouseholdFocus(null)}
+                                    onClick={(d: any) => setHouseholdFocus(prev => prev === d?.name ? null : d?.name)}
+                                  >
                                     {data.map((d,i)=>(<Cell key={i} fill={COLORS[d.key]} />))}
+                                  </Pie>
+                                  {/* Inner A/B split ring with category-aligned sections */}
+                                  <Pie
+                                    data={innerData}
+                                    dataKey="value"
+                                    nameKey="cat"
+                                    innerRadius={108}
+                                    outerRadius={116}
+                                    label={false}
+                                    isAnimationActive={false}
+                                    stroke="none"
+                                    onMouseEnter={(d: any) => setHouseholdFocus(d?.cat)}
+                                    onMouseLeave={() => setHouseholdFocus(null)}
+                                    onClick={(d: any) => setHouseholdFocus(prev => prev === d?.cat ? null : d?.cat)}
+                                  >
+                                    {innerData.map((d, i) => {
+                                      const fill = d.cat === 'Bills'
+                                        ? (d.who === 'A' ? 'hsl(var(--chart-deposit))' : 'hsl(var(--chart-deposit) / 0.35)')
+                                        : d.cat === 'Weekly allowance'
+                                          ? (d.who === 'A' ? 'hsl(270 80% 70%)' : 'hsl(270 80% 70% / 0.35)')
+                                          : d.cat === 'Savings'
+                                            ? (d.who === 'A' ? 'hsl(var(--warning))' : 'hsl(var(--warning) / 0.35)')
+                                            : (d.who === 'A' ? 'hsl(var(--success))' : 'hsl(var(--success) / 0.35)');
+                                      return <Cell key={`inner-${i}`} fill={fill} />;
+                                    })}
                                   </Pie>
                                   <Tooltip content={tooltip} />
                                 </PieChart>
                               </ResponsiveContainer>
-                              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                                <div className="text-xs text-muted-foreground">Combined income</div>
-                                <div className="text-lg font-semibold">{formatCurrency(combinedIncome)}/mo</div>
-                                <div className="mt-1 text-xs text-muted-foreground">Leftover</div>
-                                <div className="text-base font-medium text-success">{formatCurrency(combinedLeftover)}/mo</div>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none space-y-1 text-center">
+                                {focusedName && selectedItem ? (
+                                  <>
+                                    <div className="text-base font-semibold">{selectedItem.name}</div>
+                                    <div className="text-lg font-semibold">{formatCurrency(selectedValue)}/mo</div>
+                                    {selectedPct !== null && (
+                                      <div className="text-xs text-muted-foreground">{selectedPct}%</div>
+                                    )}
+                                    {selectedItem.name === 'Bills' && (
+                                      <div className="text-xs text-muted-foreground">A {Math.round(fairnessRatioA*100)}% / B {Math.round((1-fairnessRatioA)*100)}%</div>
+                                    )}
+                                    {selectedItem.name === 'Weekly allowance' && (
+                                      <div className="text-xs text-muted-foreground">A {formatCurrency(allowanceMonthlyA)} / B {formatCurrency(allowanceMonthlyB)}</div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="text-sm font-medium">Combined income</div>
+                                    <div className="text-xl font-semibold">{formatCurrency(combinedIncome)}/mo</div>
+                                    <div className="text-xs text-muted-foreground">Bills {formatCurrency(combinedBills)}/mo</div>
+                                  </>
+                                )}
                               </div>
                             </div>
-                            <div className="mt-2 text-xs">
-                              <div className="grid grid-cols-2 gap-1">
-                                {data.map((d,i)=>{
-                                  const pct = ((d.value/total)*100).toFixed(0)+'%';
-                                  return (
-                                    <div key={i} className="flex items-center gap-2">
-                                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: COLORS[d.key] }} />
-                                      <span className="text-muted-foreground">{d.name}:</span>
-                                      <span className="font-medium">{formatCurrency(d.value)}</span>
-                                      <span className="text-muted-foreground">({pct})</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                            <div className="mt-3 text-xs text-muted-foreground">
-                              <Button size="sm" variant="ghost" className="px-2 h-7" onClick={()=>setShowHouseholdDetails(v=>!v)}>
-                                {showHouseholdDetails ? 'Hide details' : 'View details'}
-                              </Button>
-                              {showHouseholdDetails && (
-                                <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                  <div className="rounded border p-2">Bills deposit (mo): <strong>{formatCurrency(combinedBills)}</strong></div>
-                                  <div className="rounded border p-2">Allowance total (mo): <strong>{formatCurrency(combinedAllowance)}</strong></div>
-                                  <div className="rounded border p-2">Savings total (mo): <strong>{formatCurrency(combinedSavings)}</strong></div>
-                                </div>
-                              )}
+                            {/* Compact legend chips */}
+                            <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                              {data.map((d) => {
+                                const active = householdFocus === d.name;
+                                return (
+                                  <button
+                                    key={d.name}
+                                    type="button"
+                                    className={`px-2 py-1 rounded-full border text-xs transition ${active ? 'bg-secondary' : 'bg-background'}`}
+                                    onMouseEnter={() => setHouseholdFocus(d.name)}
+                                    onMouseLeave={() => setHouseholdFocus(null)}
+                                    onFocus={() => setHouseholdFocus(d.name)}
+                                    onBlur={() => setHouseholdFocus(null)}
+                                    onClick={() => setHouseholdFocus(prev => prev === d.name ? null : d.name)}
+                                    aria-pressed={active}
+                                  >
+                                    <span className="inline-block w-2.5 h-2.5 rounded-full mr-1 align-middle" style={{ background: COLORS[d.key] }} />
+                                    <span className="align-middle">{d.name}</span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -2453,13 +2520,12 @@ const [state, setState] = useState<AppState>({
                           <p className="text-sm font-medium">{state.mode === 'joint' ? 'Person A' : 'You'}</p>
                           <div className="flex items-center gap-2">
                             <Badge variant="secondary">Income: {fmt(monthlyIncomeA)}</Badge>
-                            <Badge variant="secondary">Leftover: {fmt(leftoverA)}</Badge>
                           </div>
                         </div>
                         <div className="h-64">
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
-                              <Pie data={makePieData('A')} dataKey="value" nameKey="name" outerRadius={80} labelLine={false} label={renderCustomizedLabel}>
+                              <Pie data={makePieData('A')} dataKey="value" nameKey="name" outerRadius={90} labelLine={false} label={false}>
                                 {makePieData('A').map((entry, index) => (
                                   <Cell key={`cell-a-${index}`} fill={COLORS[entry.key]} />
                                 ))}
@@ -2469,34 +2535,32 @@ const [state, setState] = useState<AppState>({
                             </PieChart>
                           </ResponsiveContainer>
                         </div>
-                        <div className="mt-3 text-xs text-muted-foreground space-y-1">
-                          <div>
-                            {(() => { const ps = state.userA.paySchedule; const freq = ps?.frequency; const perPay = (state.forecastResult?.depositA || 0); const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); return (
-                              <>Bills deposit: <strong>{fmt(monthlyDepositA)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
-                            ); })()}
-                          </div>
-                          <div>Allowance: <strong>{fmt(allowanceMonthlyA)}/mo</strong> (<span>{formatCurrency(state.weeklyAllowanceA || 0)}/wk</span>)</div>
-                          <div className="flex items-center justify-between">
-                            <span>
-                              {(() => { const ps = state.userA.paySchedule; const freq = ps?.frequency; const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); const perPay = savingsMonthlyA / cyclesPerMonthLocal(ps?.frequency); return (
-                                <>Savings: <strong>{fmt(savingsMonthlyA)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
-                              ); })()}
-                            </span>
-                            {(potsA.length + potsJ.length) > 0 && (
-                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPotsA(s => !s)}>
-                                {showPotsA ? 'Hide details' : 'View details'}
-                              </Button>
-                            )}
-                          </div>
+                        <div className="mt-3 text-xs text-muted-foreground">
+                          <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPotsA(s => !s)}>
+                            {showPotsA ? 'Hide details' : 'View details'}
+                          </Button>
                           {showPotsA && (
-                            <ul className="list-disc ml-5">
-                              {potsA.map(p => (
-                                <li key={p.id}>{p.name}: {fmt(p.monthly)}</li>
-                              ))}
-                              {potsJ.length > 0 && (
-                                <li>Joint share: {fmt(jointShareA)}</li>
-                              )}
-                            </ul>
+                            <div className="mt-2 space-y-2">
+                              <div>
+                                {(() => { const ps = state.userA.paySchedule; const freq = ps?.frequency; const perPay = (state.forecastResult?.depositA || 0); const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); return (
+                                  <>Bills deposit: <strong>{fmt(monthlyDepositA)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
+                                ); })()}
+                              </div>
+                              <div>Allowance: <strong>{fmt(allowanceMonthlyA)}/mo</strong> (<span>{formatCurrency(state.weeklyAllowanceA || 0)}/wk</span>)</div>
+                              <div>
+                                {(() => { const ps = state.userA.paySchedule; const freq = ps?.frequency; const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); const perPay = savingsMonthlyA / cyclesPerMonthLocal(ps?.frequency); return (
+                                  <>Savings: <strong>{fmt(savingsMonthlyA)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
+                                ); })()}
+                              </div>
+                              <ul className="list-disc ml-5">
+                                {potsA.map(p => (
+                                  <li key={p.id}>{p.name}: {fmt(p.monthly)}</li>
+                                ))}
+                                {potsJ.length > 0 && (
+                                  <li>Joint share: {fmt(jointShareA)}</li>
+                                )}
+                              </ul>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -2506,15 +2570,14 @@ const [state, setState] = useState<AppState>({
                         <div className="rounded-md border p-4">
                           <div className="flex items-center justify-between mb-2">
                             <p className="text-sm font-medium">Person B</p>
-                            <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2">
                               <Badge variant="secondary">Income: {fmt(monthlyIncomeB)}</Badge>
-                              <Badge variant="secondary">Leftover: {fmt(leftoverB)}</Badge>
                             </div>
                           </div>
                           <div className="h-64">
                             <ResponsiveContainer width="100%" height="100%">
                               <PieChart>
-                                <Pie data={makePieData('B')} dataKey="value" nameKey="name" outerRadius={80} labelLine={false} label={renderCustomizedLabel}>
+                                <Pie data={makePieData('B')} dataKey="value" nameKey="name" outerRadius={90} labelLine={false} label={false}>
                                   {makePieData('B').map((entry, index) => (
                                     <Cell key={`cell-b-${index}`} fill={COLORS[entry.key]} />
                                   ))}
@@ -2524,34 +2587,32 @@ const [state, setState] = useState<AppState>({
                               </PieChart>
                             </ResponsiveContainer>
                           </div>
-                          <div className="mt-3 text-xs text-muted-foreground space-y-1">
-                            <div>
-                              {(() => { const ps = state.userB?.paySchedule; const freq = ps?.frequency; const perPay = (state.forecastResult?.depositB || 0); const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); return (
-                                <>Bills deposit: <strong>{fmt(monthlyDepositB)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
-                              ); })()}
-                            </div>
-                            <div>Allowance: <strong>{fmt(allowanceMonthlyB)}/mo</strong> (<span>{formatCurrency(state.weeklyAllowanceB || 0)}/wk</span>)</div>
-                            <div className="flex items-center justify-between">
-                              <span>
-                                {(() => { const ps = state.userB?.paySchedule; const freq = ps?.frequency; const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); const perPay = savingsMonthlyB / cyclesPerMonthLocal(ps?.frequency); return (
-                                  <>Savings: <strong>{fmt(savingsMonthlyB)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
-                                ); })()}
-                              </span>
-                              {(potsB.length + potsJ.length) > 0 && (
-                                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPotsB(s => !s)}>
-                                  {showPotsB ? 'Hide details' : 'View details'}
-                                </Button>
-                              )}
-                            </div>
+                          <div className="mt-3 text-xs text-muted-foreground">
+                            <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPotsB(s => !s)}>
+                              {showPotsB ? 'Hide details' : 'View details'}
+                            </Button>
                             {showPotsB && (
-                              <ul className="list-disc ml-5">
-                                {potsB.map(p => (
-                                  <li key={p.id}>{p.name}: {fmt(p.monthly)}</li>
-                                ))}
-                                {potsJ.length > 0 && (
-                                  <li>Joint share: {fmt(jointShareB)}</li>
-                                )}
-                              </ul>
+                              <div className="mt-2 space-y-2">
+                                <div>
+                                  {(() => { const ps = state.userB?.paySchedule; const freq = ps?.frequency; const perPay = (state.forecastResult?.depositB || 0); const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); return (
+                                    <>Bills deposit: <strong>{fmt(monthlyDepositB)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
+                                  ); })()}
+                                </div>
+                                <div>Allowance: <strong>{fmt(allowanceMonthlyB)}/mo</strong> (<span>{formatCurrency(state.weeklyAllowanceB || 0)}/wk</span>)</div>
+                                <div>
+                                  {(() => { const ps = state.userB?.paySchedule; const freq = ps?.frequency; const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); const perPay = savingsMonthlyB / cyclesPerMonthLocal(ps?.frequency); return (
+                                    <>Savings: <strong>{fmt(savingsMonthlyB)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
+                                  ); })()}
+                                </div>
+                                <ul className="list-disc ml-5">
+                                  {potsB.map(p => (
+                                    <li key={p.id}>{p.name}: {fmt(p.monthly)}</li>
+                                  ))}
+                                  {potsJ.length > 0 && (
+                                    <li>Joint share: {fmt(jointShareB)}</li>
+                                  )}
+                                </ul>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -2560,15 +2621,7 @@ const [state, setState] = useState<AppState>({
 
                     )}
 
-                    {/* Fairness summary */}
-                    {state.mode === 'joint' && (
-                      <div className="mt-4 text-xs text-muted-foreground">
-                        <p>
-                          Bill split: <strong>{(fairnessRatioA * 100).toFixed(0)}%</strong> A / <strong>{((1 - fairnessRatioA) * 100).toFixed(0)}%</strong> B
-                          {' '}based on effective income after allowances and savings.
-                        </p>
-                      </div>
-                    )}
+                    {/* Fairness summary removed per request */}
                   </CardContent>
                 </Card>
               );
