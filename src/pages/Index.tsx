@@ -125,8 +125,19 @@ const [state, setState] = useState<AppState>({
   const [newPotName, setNewPotName] = useState('');
   const [newPotAmount, setNewPotAmount] = useState<number>(0);
   const [newPotOwner, setNewPotOwner] = useState<'A' | 'B' | 'JOINT'>('A');
+  // New inputs for split pot creation (joint mode)
+  const [newPotNameA, setNewPotNameA] = useState('');
+  const [newPotAmountA, setNewPotAmountA] = useState<number>(0);
+  const [newPotNameB, setNewPotNameB] = useState('');
+  const [newPotAmountB, setNewPotAmountB] = useState<number>(0);
   const [showBillWizard, setShowBillWizard] = useState(false);
   const [dateMoves, setDateMoves] = useState<Array<{ name: string; fromISO: string; toISO: string }>>([]);
+  // Live budget preview + binding mode for two-way coupling between allowances and pots
+  const [budgetPreview, setBudgetPreview] = useState<{ availableA: number; availableB: number; monthlyJointA: number; monthlyJointB: number }>({ availableA: 0, availableB: 0, monthlyJointA: 0, monthlyJointB: 0 });
+  const [bindingMode, setBindingMode] = useState<{ A: 'allowance' | 'pots'; B: 'allowance' | 'pots' }>({ A: 'allowance', B: 'allowance' });
+
+  // Access plan store early so hooks below can depend on it safely
+  const { detected, inputs, result: storeResult } = usePlanStore();
 
   // Helper: cycles per month for presenting monthly-equivalents
   const cyclesPerMonth = (freq?: string) => {
@@ -140,8 +151,320 @@ const [state, setState] = useState<AppState>({
     }
   };
 
+  // --- Live budget recompute (keeps preview in sync and optionally rebalances allowance when pots drive) ---
+  const recomputeLiveBudget = () => {
+    try {
+      if (!state.userA?.paySchedule) {
+        setBudgetPreview({ availableA: 0, availableB: 0, monthlyJointA: 0, monthlyJointB: 0 });
+        return;
+      }
+
+      // In joint mode, wait until both pay schedules are ready to avoid misleading single-mode estimates
+      if (state.mode === 'joint' && !state.userB?.paySchedule) {
+        setBudgetPreview({ availableA: 0, availableB: 0, monthlyJointA: 0, monthlyJointB: 0 });
+        return;
+      }
+
+      // Wait for detections to load before first joint preview to avoid under-estimating deposits
+      if (state.mode === 'joint') {
+        const recA = (detected as any)?.recurring || [];
+        const recB = (detected as any)?.recurringB || [];
+        if ((recA.length === 0) && (recB.length === 0)) {
+          return;
+        }
+      }
+
+      // Build minimal bill set similar to runForecast (manual + predicted-electricity rolled forward)
+      const elecPredicted = (state.bills || [])
+        .filter(b => b.source === 'predicted-electricity')
+        .map(b => ({ ...b, source: 'predicted-electricity' as const }));
+      const manual = (state.bills || [])
+        .filter(b => b.source === 'manual')
+        .map(b => ({ ...b, source: b.source ?? 'manual' as const }));
+
+      const firstAnchor = state.userB?.paySchedule
+        ? (state.userA.paySchedule!.anchorDate < state.userB.paySchedule!.anchorDate ? state.userA.paySchedule!.anchorDate : state.userB.paySchedule!.anchorDate)
+        : state.userA.paySchedule!.anchorDate;
+
+      const provisionalBills = [...manual, ...elecPredicted];
+      const allBillsProvisional = rollForwardPastBills(provisionalBills, firstAnchor);
+
+      const startDateA = getStartDate(state.userA.paySchedule!, allBillsProvisional);
+      const payScheduleA: PaySchedule = { ...state.userA.paySchedule!, anchorDate: startDateA };
+      let payScheduleB: PaySchedule | null = null;
+      let startDateB = '';
+      if (state.mode === 'joint' && state.userB?.paySchedule) {
+        startDateB = getStartDate(state.userB.paySchedule!, allBillsProvisional);
+        payScheduleB = { ...state.userB.paySchedule!, anchorDate: startDateB };
+      }
+
+      // Monthly incomes
+      const toMonthlySalary = (s?: SalaryCandidate): number | undefined => {
+        if (!s) return undefined;
+        switch (s.freq) {
+          case 'weekly': return (s.amount * 52) / 12;
+          case 'fortnightly': return (s.amount * 26) / 12;
+          case 'four_weekly': return (s.amount * 13) / 12;
+          case 'monthly':
+          default: return s.amount;
+        }
+      };
+      const toMonthlySchedule = (ps?: PaySchedule) => {
+        if (!ps || !ps.averageAmount) return 0;
+        switch (ps.frequency) {
+          case 'WEEKLY': return (ps.averageAmount * 52) / 12;
+          case 'FORTNIGHTLY':
+          case 'BIWEEKLY': return (ps.averageAmount * 26) / 12;
+          case 'FOUR_WEEKLY': return (ps.averageAmount * 13) / 12;
+          case 'MONTHLY':
+          default: return ps.averageAmount;
+        }
+      };
+      const monthlyA = toMonthlySalary(topSalary) ?? toMonthlySchedule(payScheduleA);
+      const monthlyB = state.mode === 'joint' ? (toMonthlySalary(topSalaryB) ?? toMonthlySchedule(payScheduleB!)) : 0;
+
+      // Allowances (monthly)
+      const allowanceMonthlyA = (state.weeklyAllowanceA ?? 0) * 52 / 12;
+      const allowanceMonthlyB = (state.weeklyAllowanceB ?? 0) * 52 / 12;
+
+      // Pots
+      const sumA = (state.pots || []).filter(p => p.owner === 'A').reduce((s, p) => s + p.monthly, 0);
+      const sumB = (state.pots || []).filter(p => p.owner === 'B').reduce((s, p) => s + p.monthly, 0);
+      const sumJ = (state.pots || []).filter(p => p.owner === 'JOINT').reduce((s, p) => s + p.monthly, 0);
+      const prelimRatioA = (monthlyA + monthlyB) > 0 ? monthlyA / (monthlyA + monthlyB) : 0.5;
+      const jointShareA = sumJ * prelimRatioA;
+      const jointShareB = sumJ * (1 - prelimRatioA);
+
+      // Effective-income fairness (matches Calculate) for deposit computation
+      const effA = (monthlyA || 0) - allowanceMonthlyA - sumA - jointShareA;
+      const effB = (monthlyB || 0) - (state.mode === 'joint' ? allowanceMonthlyB + sumB + jointShareB : 0);
+      const fairnessEffA = (state.mode === 'joint' && (effA + effB) > 0)
+        ? (effA / (effA + effB))
+        : 1;
+
+      // Build expanded bill set (manual + imported recurring + electricity)
+      const months = 12;
+      const startMin = (state.mode === 'joint' && startDateB) ? (startDateA < startDateB ? startDateA : startDateB) : startDateA;
+      const importedA = expandRecurring(detected?.recurring ?? [], startMin, months, 'imp-a-');
+      const importedB = expandRecurring((detected?.recurringB ?? (detected as any)?.allRecurring ?? []), startMin, months, 'imp-b-');
+      let mergedBills = [...manual, ...importedA, ...importedB, ...elecPredicted];
+      // Apply any pending date moves as forecast does
+      const movesToApply = dateMoves;
+      if (movesToApply.length) {
+        const moveKey = (m: {name:string;fromISO:string; id?:string}) => `${m.id || m.name}@@${m.fromISO}`;
+        const map = new Map(movesToApply.map(m => [moveKey(m), m.toISO]));
+        mergedBills = mergedBills.map(b => {
+          const keyById = b.id ? `${b.id}@@${b.dueDate}` : '';
+          const keyByName = `${b.name}@@${b.dueDate}`;
+          if (keyById && map.has(keyById)) return { ...b, dueDate: map.get(keyById)! };
+          if (map.has(keyByName)) return { ...b, dueDate: map.get(keyByName)! };
+          return b;
+        });
+      }
+
+      // Align merged bills to the start (roll-forward + normalized fields) just like forecast
+      const mergedBillsRolled = rollForwardPastBills(
+        mergedBills.map(b => ({
+          id: b.id || '',
+          name: b.name,
+          amount: b.amount,
+          issueDate: b.issueDate || (b as any).dueDateISO || b.dueDate || startMin,
+          dueDate: b.dueDate || (b as any).dueDateISO || startMin,
+          source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as "manual" | "predicted-electricity" | "imported",
+          movable: b.movable
+        })),
+        startMin
+      ).filter(b => !b.dueDate || b.dueDate >= startMin);
+
+      // Deposits (monthly) — reuse frozen requiredDepositA/B (per‑pay) from storeResult
+      let monthlyJointA = 0, monthlyJointB = 0;
+      const frozenNow = storeResult as any;
+      if (!frozenNow || typeof frozenNow.requiredDepositA !== 'number' || (state.mode === 'joint' && (!payScheduleB || typeof frozenNow.requiredDepositB !== 'number'))) {
+        // Wait until frozen deposits are computed
+        return;
+      }
+      monthlyJointA = frozenNow.requiredDepositA * cyclesPerMonth(payScheduleA.frequency);
+      if (state.mode === 'joint' && payScheduleB) {
+        monthlyJointB = (frozenNow.requiredDepositB || 0) * cyclesPerMonth(payScheduleB.frequency);
+      }
+
+      // Available for savings this month (personal), subtract existing owner pots
+      // Compute availability from current monthly incomes and frozen deposits
+      const availableA = Math.max(0, (monthlyA || 0) - allowanceMonthlyA - monthlyJointA - sumA);
+      const availableB = Math.max(0, (monthlyB || 0) - (state.mode === 'joint' ? (allowanceMonthlyB + monthlyJointB) : 0) - sumB);
+
+      // Do not auto-rebalance weekly allowances when pots change; keep allowance stable
+
+      console.log('[budget] recompute', {
+        monthlyA: +((monthlyA || 0)).toFixed(2),
+        monthlyB: +((monthlyB || 0)).toFixed(2),
+        allowanceMonthlyA: +allowanceMonthlyA.toFixed(2),
+        allowanceMonthlyB: +allowanceMonthlyB.toFixed(2),
+        monthlyJointA: +monthlyJointA.toFixed(2),
+        monthlyJointB: +monthlyJointB.toFixed(2),
+        fairnessEffA: +fairnessEffA.toFixed(4),
+        availableA: +availableA.toFixed(2),
+        availableB: +availableB.toFixed(2)
+      });
+      setBudgetPreview({
+        availableA: +availableA.toFixed(2),
+        availableB: +availableB.toFixed(2),
+        monthlyJointA: +monthlyJointA.toFixed(2),
+        monthlyJointB: +monthlyJointB.toFixed(2)
+      });
+    } catch (e) {
+      console.warn('[budget] live recompute failed:', e);
+    }
+  };
+
+  // Compute and freeze deposits once per Forecast entry (or when detections become available)
+  const computeAndFreezeDepositsIfNeeded = () => {
+    try {
+      const storeNow = usePlanStore.getState();
+      const r = storeNow.result as any;
+      // Already frozen? skip
+      if (r && typeof r.requiredDepositA === 'number' && (state.mode === 'single' || typeof r.requiredDepositB === 'number')) return;
+
+      if (!state.userA?.paySchedule) return;
+      if (state.mode === 'joint' && !state.userB?.paySchedule) return;
+
+      // Require detections in joint mode to avoid partial bill sets
+      if (state.mode === 'joint') {
+        const recA = (detected as any)?.recurring || [];
+        const recB = (detected as any)?.recurringB || [];
+        if ((recA.length === 0) && (recB.length === 0)) return;
+      }
+      // Use detected salaries or schedule-derived monthly incomes
+
+      // Build bill set identical to forecast
+      const elecPredicted = (state.bills || [])
+        .filter(b => b.source === 'predicted-electricity')
+        .map(b => ({ ...b, source: 'predicted-electricity' as const }));
+      const manual = (state.bills || [])
+        .filter(b => b.source === 'manual')
+        .map(b => ({ ...b, source: b.source ?? 'manual' as const }));
+
+      // Effective start and schedules
+      const firstAnchor = state.userB?.paySchedule
+        ? (state.userA.paySchedule!.anchorDate < state.userB.paySchedule!.anchorDate ? state.userA.paySchedule!.anchorDate : state.userB.paySchedule!.anchorDate)
+        : state.userA.paySchedule!.anchorDate;
+      const provisionalBills = [...manual, ...elecPredicted];
+      const allBillsProvisional = rollForwardPastBills(provisionalBills, firstAnchor);
+      const startDateA = getStartDate(state.userA.paySchedule!, allBillsProvisional);
+      const psA: PaySchedule = { ...state.userA.paySchedule!, anchorDate: startDateA };
+      let psB: PaySchedule | null = null;
+      let startDateB = '';
+      if (state.mode === 'joint' && state.userB?.paySchedule) {
+        startDateB = getStartDate(state.userB.paySchedule!, allBillsProvisional);
+        psB = { ...state.userB.paySchedule!, anchorDate: startDateB };
+      }
+      const months = 12;
+      const startMin = (state.mode === 'joint' && startDateB) ? (startDateA < startDateB ? startDateA : startDateB) : startDateA;
+      const importedA = expandRecurring((detected as any)?.recurring ?? [], startMin, months, 'imp-a-');
+      const importedB = expandRecurring(((detected as any)?.recurringB ?? (detected as any)?.allRecurring ?? []), startMin, months, 'imp-b-');
+      let mergedBills = [...manual, ...importedA, ...importedB, ...elecPredicted];
+      // Apply pending date moves
+      if (dateMoves.length) {
+        const moveKey = (m: {name:string;fromISO:string; id?:string}) => `${m.id || m.name}@@${m.fromISO}`;
+        const map = new Map(dateMoves.map(m => [moveKey(m), m.toISO]));
+        mergedBills = mergedBills.map(b => {
+          const keyById = b.id ? `${b.id}@@${b.dueDate}` : '';
+          const keyByName = `${b.name}@@${b.dueDate}`;
+          if (keyById && map.has(keyById)) return { ...b, dueDate: map.get(keyById)! };
+          if (map.has(keyByName)) return { ...b, dueDate: map.get(keyByName)! };
+          return b;
+        });
+      }
+      const mergedBillsRolled = rollForwardPastBills(
+        mergedBills.map(b => ({
+          id: b.id || '',
+          name: b.name,
+          amount: b.amount,
+          issueDate: b.issueDate || (b as any).dueDateISO || b.dueDate || startMin,
+          dueDate: b.dueDate || (b as any).dueDateISO || startMin,
+          source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as 'manual' | 'predicted-electricity' | 'imported',
+          movable: b.movable
+        })),
+        startMin
+      ).filter(b => !b.dueDate || b.dueDate >= startMin);
+
+      // Effective-income fairness (matches Calculate)
+      const toMonthlySchedule = (ps?: PaySchedule) => {
+        if (!ps || !ps.averageAmount) return 0;
+        switch (ps.frequency) {
+          case 'WEEKLY': return (ps.averageAmount * 52) / 12;
+          case 'FORTNIGHTLY':
+          case 'BIWEEKLY': return (ps.averageAmount * 26) / 12;
+          case 'FOUR_WEEKLY': return (ps.averageAmount * 13) / 12;
+          case 'MONTHLY':
+          default: return ps.averageAmount;
+        }
+      };
+      const monthlyIncomeA = toMonthlySalary(topSalary) ?? toMonthlySchedule(psA);
+      const monthlyIncomeB = state.mode === 'joint' ? (toMonthlySalary(topSalaryB) ?? toMonthlySchedule(psB!)) : 0;
+      const allowanceMonthlyA = (state.weeklyAllowanceA ?? 0) * 52 / 12;
+      const allowanceMonthlyB = (state.weeklyAllowanceB ?? 0) * 52 / 12;
+      const sumA = (state.pots || []).filter(p => p.owner === 'A').reduce((s, p) => s + p.monthly, 0);
+      const sumB = (state.pots || []).filter(p => p.owner === 'B').reduce((s, p) => s + p.monthly, 0);
+      const sumJ = (state.pots || []).filter(p => p.owner === 'JOINT').reduce((s, p) => s + p.monthly, 0);
+      const prelimRatioA = (monthlyIncomeA + monthlyIncomeB) > 0 ? monthlyIncomeA / (monthlyIncomeA + monthlyIncomeB) : 0.5;
+      const jointShareA = sumJ * prelimRatioA;
+      const jointShareB = sumJ * (1 - prelimRatioA);
+      const effA = (monthlyIncomeA || 0) - allowanceMonthlyA - sumA - jointShareA;
+      const effB = (monthlyIncomeB || 0) - (state.mode === 'joint' ? allowanceMonthlyB + sumB + jointShareB : 0);
+      const fairnessEffA = (state.mode === 'joint' && (effA + effB) > 0) ? (effA / (effA + effB)) : 1;
+
+      // Compute and freeze
+      if (state.mode === 'single' || !psB) {
+        const depA = findDepositSingle(startDateA, psA, mergedBillsRolled as any, 0);
+        const monthlyDepositA = depA * cyclesPerMonth(psA.frequency);
+        storeNow.setResult({
+          ...storeNow.result,
+          requiredDepositA: depA,
+          startISO: startDateA,
+          frozenBudget: {
+            monthlyIncomeA,
+            monthlyIncomeB: 0,
+            monthlyDepositA,
+            monthlyDepositB: 0
+          }
+        } as any);
+      } else {
+        const dep = findDepositJoint(startMin, psA, psB, mergedBillsRolled as any, fairnessEffA, 0);
+        const monthlyDepositA = dep.depositA * cyclesPerMonth(psA.frequency);
+        const monthlyDepositB = dep.depositB * cyclesPerMonth(psB.frequency);
+        storeNow.setResult({
+          ...storeNow.result,
+          requiredDepositA: dep.depositA,
+          requiredDepositB: dep.depositB,
+          startISO: startMin,
+          frozenBudget: {
+            monthlyIncomeA,
+            monthlyIncomeB,
+            monthlyDepositA,
+            monthlyDepositB
+          }
+        } as any);
+      }
+    } catch (e) {
+      console.warn('[budget] computeAndFreezeDeposits failed:', e);
+    }
+  };
+
+  // Trigger freezing deposits once when Forecast is ready
+  useEffect(() => {
+    if (state.step !== 'forecast') return;
+    computeAndFreezeDepositsIfNeeded();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.step, state.userA?.paySchedule, state.userB?.paySchedule, detected, dateMoves, inputs]);
+
+  useEffect(() => {
+    if (state.step === 'forecast') recomputeLiveBudget();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.step, state.weeklyAllowanceA, state.weeklyAllowanceB, state.pots, state.mode, state.userA?.paySchedule, state.userB?.paySchedule, state.bills, detected, dateMoves, (storeResult as any)?.requiredDepositA, (storeResult as any)?.requiredDepositB]);
+
   // 🔌 NEW: read worker detections (salary + recurring) from the store
-  const { detected, inputs, result: storeResult } = usePlanStore();
+  // store access already declared above for effects
   const topSalary: SalaryCandidate | undefined = detected?.salaries?.[0];
   const topSalaryB: SalaryCandidate | undefined = (detected as any)?.salariesB?.[0];
   const recurringFromStore: RecurringItem[] = detected?.recurring ?? [];
@@ -460,7 +783,7 @@ const [state, setState] = useState<AppState>({
       if (api) {
         const currentInputs = { ...usePlanStore.getState().inputs, elecPredicted: currentElecBills } as PlanInputs;
         api.simulate(currentInputs).then(res => {
-          usePlanStore.getState().setResult(res);
+        usePlanStore.getState().setResult({ ...usePlanStore.getState().result, ...res });
         }).catch(err => console.error('[forecast] worker sim failed:', err));
       }
     }
@@ -557,7 +880,7 @@ const [state, setState] = useState<AppState>({
         } as any;
         try {
           workerResult = await api.simulate(planForWorker);
-          usePlanStore.getState().setResult(workerResult);
+          usePlanStore.getState().setResult({ ...usePlanStore.getState().result, ...workerResult });
         } catch (e) {
           console.warn('[forecast] worker simulate failed:', e);
         }
@@ -643,6 +966,13 @@ const [state, setState] = useState<AppState>({
         } catch (e) {
           console.warn('Bill suggestions generation failed:', e);
         }
+
+        // Freeze per‑pay deposits for preview reuse
+        usePlanStore.getState().setResult({
+          ...usePlanStore.getState().result,
+          requiredDepositA: depositA,
+          startISO: startDateA
+        } as any);
 
         setState(prev => ({
           ...prev,
@@ -763,6 +1093,14 @@ const [state, setState] = useState<AppState>({
         }
 
         console.log('[forecast] deposits: A=%s, B=%s', depositA.toFixed(2), (depositB ?? 0).toFixed(2));
+        // Freeze per‑pay deposits for preview reuse
+        const frozenStart = useWorkerOptimization ? (workerResult.startISO || startDate) : startDate;
+        usePlanStore.getState().setResult({
+          ...usePlanStore.getState().result,
+          requiredDepositA: depositA,
+          requiredDepositB: depositB,
+          startISO: frozenStart
+        } as any);
 
         if (!useWorkerOptimization) {
           setTimeout(() => {
@@ -1372,13 +1710,13 @@ const [state, setState] = useState<AppState>({
                 <CardContent>
                   <h4 className="text-sm font-medium">Weekly Spending Allowance</h4>
                   {state.mode === 'joint' ? (
-                    <div className="flex gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                       <div>
                         <label className="text-sm">Person A Allowance (€ per week)</label>
                         <Input
                           type="number"
                           value={state.weeklyAllowanceA}
-                          onChange={e => setState(prev => ({ ...prev, weeklyAllowanceA: parseFloat(e.target.value) || 0 }))}
+                          onChange={e => { setBindingMode(prev => ({ ...prev, A: 'allowance' })); setState(prev => ({ ...prev, weeklyAllowanceA: parseFloat(e.target.value) || 0 })); }}
                         />
                       </div>
                       <div>
@@ -1386,20 +1724,21 @@ const [state, setState] = useState<AppState>({
                         <Input
                           type="number"
                           value={state.weeklyAllowanceB}
-                          onChange={e => setState(prev => ({ ...prev, weeklyAllowanceB: parseFloat(e.target.value) || 0 }))}
+                          onChange={e => { setBindingMode(prev => ({ ...prev, B: 'allowance' })); setState(prev => ({ ...prev, weeklyAllowanceB: parseFloat(e.target.value) || 0 })); }}
                         />
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <label className="text-sm">Your Weekly Allowance</label>
+                      <label className="text-sm">Your Weekly Allowance (€ per week)</label>
                       <Input
                         type="number"
                         value={state.weeklyAllowanceA}
-                        onChange={e => setState(prev => ({ ...prev, weeklyAllowanceA: parseFloat(e.target.value) || 0 }))}
+                        onChange={e => { setBindingMode(prev => ({ ...prev, A: 'allowance' })); setState(prev => ({ ...prev, weeklyAllowanceA: parseFloat(e.target.value) || 0 })); }}
                       />
                     </div>
                   )}
+                  {/* Availability moved to Savings Pots section */}
                   <p className="text-xs text-muted-foreground mt-1">
                     (This amount will be kept in your personal account each pay period and not used for bills.)
                   </p>
@@ -1409,48 +1748,69 @@ const [state, setState] = useState<AppState>({
               <Card className="mb-4">
                 <CardContent>
                   <h4 className="text-sm font-medium mb-2">Savings Pots</h4>
-                  <div className="flex flex-wrap gap-2 items-end mb-2">
-                    <Input
-                      placeholder="Pot name"
-                      value={newPotName}
-                      onChange={e => setNewPotName(e.target.value)}
-                    />
-                    <Input
-                      type="number"
-                      placeholder="Monthly amount"
-                      className="w-32"
-                      value={newPotAmount}
-                      onChange={e => setNewPotAmount(parseFloat(e.target.value) || 0)}
-                    />
-                    {state.mode === 'joint' && (
-                      <select
-                        className="border rounded px-2 py-1"
-                        value={newPotOwner}
-                        onChange={e => setNewPotOwner(e.target.value as 'A' | 'B' | 'JOINT')}
-                      >
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="JOINT">Joint</option>
-                      </select>
-                    )}
-                    <Button
-                      onClick={() => {
-                        handleAddPot(newPotName, newPotAmount, state.mode === 'joint' ? newPotOwner : 'A');
-                        setNewPotName('');
-                        setNewPotAmount(0);
-                      }}
-                    >
-                      Add
-                    </Button>
-                  </div>
-                  {state.pots.length > 0 && (
-                    <ul className="mt-2 list-disc pl-5 space-y-1">
-                      {state.pots.map(p => (
-                        <li key={p.id} className="text-sm">
-                          {p.name}: {formatCurrency(p.monthly)} ({p.owner})
+                  {state.mode === 'joint' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-2">
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <Input placeholder="A Pot name" value={newPotNameA} onChange={e => setNewPotNameA(e.target.value)} />
+                        <Input type="number" placeholder="Monthly amount" className="w-32" value={newPotAmountA} onChange={e => setNewPotAmountA(parseFloat(e.target.value) || 0)} />
+                        <Button onClick={() => { handleAddPot(newPotNameA, newPotAmountA, 'A'); setNewPotNameA(''); setNewPotAmountA(0); }}>Add</Button>
+                      </div>
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <Input placeholder="B Pot name" value={newPotNameB} onChange={e => setNewPotNameB(e.target.value)} />
+                        <Input type="number" placeholder="Monthly amount" className="w-32" value={newPotAmountB} onChange={e => setNewPotAmountB(parseFloat(e.target.value) || 0)} />
+                        <Button onClick={() => { handleAddPot(newPotNameB, newPotAmountB, 'B'); setNewPotNameB(''); setNewPotAmountB(0); }}>Add</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 items-end mb-2">
+                      <Input placeholder="Pot name" value={newPotName} onChange={e => setNewPotName(e.target.value)} />
+                      <Input type="number" placeholder="Monthly amount" className="w-32" value={newPotAmount} onChange={e => setNewPotAmount(parseFloat(e.target.value) || 0)} />
+                      <Button onClick={() => { handleAddPot(newPotName, newPotAmount, 'A'); setNewPotName(''); setNewPotAmount(0); }}>Add</Button>
+                    </div>
+                  )}
+                  {state.mode === 'joint' ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Available for A savings this month: <strong>{formatCurrency(budgetPreview.availableA || 0)}</strong></p>
+                        <ul className="mt-2 space-y-2">
+                          {state.pots.filter(p => p.owner === 'A').map(p => (
+                            <li key={p.id} className="flex items-center gap-2 text-sm">
+                              <button aria-label="Remove" className="text-gray-500 hover:text-red-600" onClick={() => { setBindingMode(prev => ({ ...prev, A: 'pots' })); setState(prev => ({ ...prev, pots: prev.pots.filter(x => x.id !== p.id) })); }}>×</button>
+                              <span className="min-w-24 truncate" title={p.name}>{p.name}</span>
+                          <Input type="number" className="w-28" value={p.monthly}
+                                onChange={e => { const amt = parseFloat(e.target.value) || 0; setState(prev => ({ ...prev, pots: prev.pots.map(x => x.id === p.id ? { ...x, monthly: amt } : x) })); }} />
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Available for B savings this month: <strong>{formatCurrency(budgetPreview.availableB || 0)}</strong></p>
+                        <ul className="mt-2 space-y-2">
+                          {state.pots.filter(p => p.owner === 'B').map(p => (
+                            <li key={p.id} className="flex items-center gap-2 text-sm">
+                              <button aria-label="Remove" className="text-gray-500 hover:text-red-600" onClick={() => { setBindingMode(prev => ({ ...prev, B: 'pots' })); setState(prev => ({ ...prev, pots: prev.pots.filter(x => x.id !== p.id) })); }}>×</button>
+                              <span className="min-w-24 truncate" title={p.name}>{p.name}</span>
+                          <Input type="number" className="w-28" value={p.monthly}
+                                onChange={e => { const amt = parseFloat(e.target.value) || 0; setState(prev => ({ ...prev, pots: prev.pots.map(x => x.id === p.id ? { ...x, monthly: amt } : x) })); }} />
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                    <p className="text-xs text-muted-foreground">Available for savings this month: <strong>{formatCurrency(budgetPreview.availableA || 0)}</strong></p>
+                    <ul className="mt-2 space-y-2">
+                      {state.pots.filter(p => p.owner === 'A').map(p => (
+                        <li key={p.id} className="flex items-center gap-2 text-sm">
+                          <button aria-label="Remove" className="text-gray-500 hover:text-red-600" onClick={() => { setBindingMode(prev => ({ ...prev, A: 'pots' })); setState(prev => ({ ...prev, pots: prev.pots.filter(x => x.id !== p.id) })); }}>×</button>
+                          <span className="min-w-24 truncate" title={p.name}>{p.name}</span>
+                          <Input type="number" className="w-28" value={p.monthly}
+                            onChange={e => { const amt = parseFloat(e.target.value) || 0; setBindingMode(prev => ({ ...prev, A: 'pots' })); setState(prev => ({ ...prev, pots: prev.pots.map(x => x.id === p.id ? { ...x, monthly: amt } : x) })); }} />
                         </li>
                       ))}
                     </ul>
+                    </>
                   )}
                 </CardContent>
               </Card>
