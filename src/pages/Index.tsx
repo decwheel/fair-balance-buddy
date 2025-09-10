@@ -35,6 +35,7 @@ import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
 import { BillEditorDialog, BillFrequency } from '@/components/bills/BillEditorDialog';
+import { BillDateWizard } from '@/components/bills/BillDateWizard';
 import { generateOccurrences } from '@/utils/recurrence';
 import { persistBills } from '@/services/supabaseBills';
 import { rollForwardPastBills } from '@/utils/billUtils';
@@ -124,6 +125,8 @@ const [state, setState] = useState<AppState>({
   const [newPotName, setNewPotName] = useState('');
   const [newPotAmount, setNewPotAmount] = useState<number>(0);
   const [newPotOwner, setNewPotOwner] = useState<'A' | 'B' | 'JOINT'>('A');
+  const [showBillWizard, setShowBillWizard] = useState(false);
+  const [dateMoves, setDateMoves] = useState<Array<{ name: string; fromISO: string; toISO: string }>>([]);
 
   // Helper: cycles per month for presenting monthly-equivalents
   const cyclesPerMonth = (freq?: string) => {
@@ -304,9 +307,13 @@ const [state, setState] = useState<AppState>({
         return nextState;
       });
 
-      const txA = nextState.userA?.transactions ?? [];
-      const txB = nextState.userB?.transactions ?? [];
-      (window as any).__runDetection?.(txA, txB);
+      if (nextState) {
+        const txA = nextState.userA?.transactions ?? [];
+        const txB = nextState.userB?.transactions ?? [];
+        (window as any).__runDetection?.(txA, txB);
+      } else {
+        console.warn('[Index] onTx: nextState undefined after setState; skipping detection');
+      }
     };
 
     window.addEventListener('gc:transactions' as any, onTx);
@@ -467,7 +474,7 @@ const [state, setState] = useState<AppState>({
     return before.length ? before[before.length - 1] : pays[0];
   };
 
-  const runForecast = (currentState: AppState = state) => {
+  const runForecast = async (currentState: AppState = state, movesOverride?: Array<{ id?: string; name: string; fromISO: string; toISO: string }>) => {
     if (!currentState.userA.paySchedule) return;
 
     // Work with the most up-to-date state (e.g. newly added bills)
@@ -511,7 +518,22 @@ const [state, setState] = useState<AppState>({
         months,
         'imp-b-'
       );
-      const mergedBills = [...manual, ...importedA, ...importedB, ...elecPredicted];
+      let mergedBills = [...manual, ...importedA, ...importedB, ...elecPredicted];
+      // Apply any pending date moves (name + fromISO → toISO)
+      const movesToApply = movesOverride && movesOverride.length ? movesOverride : dateMoves;
+      if (movesToApply.length) {
+        const moveKey = (m: {name:string;fromISO:string; id?:string}) => `${m.id || m.name}@@${m.fromISO}`;
+        const map = new Map(movesToApply.map(m => [moveKey(m), m.toISO]));
+        let applied = 0;
+        mergedBills = mergedBills.map(b => {
+          const keyById = b.id ? `${b.id}@@${b.dueDate}` : '';
+          const keyByName = `${b.name}@@${b.dueDate}`;
+          if (keyById && map.has(keyById)) { applied++; return { ...b, dueDate: map.get(keyById)! }; }
+          if (map.has(keyByName)) { applied++; return { ...b, dueDate: map.get(keyByName)! }; }
+          return b;
+        });
+        console.log('[forecast] applied date moves:', applied, 'of', movesToApply.length);
+      }
       console.log(
         '[forecast] bills: manual=%d, importedA=%d, importedB=%d, elec=%d, total=%d',
         manual.length,
@@ -522,7 +544,8 @@ const [state, setState] = useState<AppState>({
       );
 
       const api = (window as any).__workerAPI;
-      if (api) {
+      let workerResult: SimResult | undefined;
+      if (api && currentState.mode === 'joint') {
         const planForWorker: PlanInputs = {
           ...usePlanStore.getState().inputs,
           bills: mergedBills,
@@ -532,10 +555,12 @@ const [state, setState] = useState<AppState>({
           startISO: startDate,
           mode: 'joint',
         } as any;
-        api
-          .simulate(planForWorker)
-          .then(res => usePlanStore.getState().setResult(res))
-          .catch(() => {});
+        try {
+          workerResult = await api.simulate(planForWorker);
+          usePlanStore.getState().setResult(workerResult);
+        } catch (e) {
+          console.warn('[forecast] worker simulate failed:', e);
+        }
       }
 
       // Use the same start the solver will use
@@ -553,59 +578,70 @@ const [state, setState] = useState<AppState>({
       ).filter(b => !b.dueDate || b.dueDate >= startDate);
 
       if (currentState.mode === 'single') {
-          // Use optimized deposits from worker result if available, otherwise use old forecast
-          const workerResult = storeResult;
-        const useWorkerOptimization = workerResult && workerResult.requiredDepositA;
+        // Evaluate multiple candidate start dates to reduce deposit/snowballing
+        const cands = calculatePayDates(payScheduleA.frequency, payScheduleA.anchorDate, 6)
+          .filter(d => d >= startDateA)
+          .slice(0, payScheduleA.frequency === 'WEEKLY' ? 4 : payScheduleA.frequency === 'FORTNIGHTLY' || payScheduleA.frequency === 'BIWEEKLY' ? 2 : 1);
+        const tryStarts = [startDateA, ...cands.filter(d => d !== startDateA)];
 
-        let depositA: number;
-        let resultObj: { minBalance: number; timeline: any };
-        if (useWorkerOptimization) {
-          depositA = workerResult.requiredDepositA;
-          resultObj = runSingle(
-            depositA,
-            startDateA,
-            payScheduleA,
-            allBills,
-            { months: 12, buffer: 0 }
-          );
-        } else {
-          const baselineDeposit = 150;
-          depositA = findDepositSingle(
-            startDateA,
-            payScheduleA,
-            allBills,
-            baselineDeposit
-          );
-          resultObj = runSingle(
-            depositA,
-            startDateA,
-            payScheduleA,
-            allBills,
-            { months: 12, buffer: 0 }
-          );
+        let bestDep = Infinity;
+        let bestRes: { minBalance: number; timeline: any } | null = null;
+        let bestStart = startDateA;
+        for (const s of tryStarts) {
+          const dep = findDepositSingle(s, { ...payScheduleA, anchorDate: s }, allBills, 0);
+          const res = runSingle(dep, s, { ...payScheduleA, anchorDate: s }, allBills, { months: 12, buffer: 0 });
+          if (res.minBalance < 0) continue;
+          if (dep < bestDep) { bestDep = dep; bestRes = res; bestStart = s; }
+          else if (dep === bestDep && bestRes && Math.abs(bestRes.timeline.at(-1)?.balance ?? 0) > Math.abs(res.timeline.at(-1)?.balance ?? 0)) {
+            bestRes = res; bestStart = s;
+          }
         }
 
-        if (!useWorkerOptimization) {
-          setTimeout(() => {
-            try {
-              const s = generateBillSuggestions(
-                inputs as PlanInputs,
-                { monthlyA: depositA },
-                resultObj.minBalance
-              );
-              usePlanStore.getState().setResult({
-                ...usePlanStore.getState().result,
-                billSuggestions: s
-              });
-            } catch (e) {
-              console.warn('Bill suggestions generation failed:', e);
+        const depositA = isFinite(bestDep) ? bestDep : findDepositSingle(startDateA, payScheduleA, allBills, 0);
+        const resultObj = bestRes || runSingle(depositA, startDateA, payScheduleA, allBills, { months: 12, buffer: 0 });
+
+        // Use worker suggestions if present; otherwise compute locally
+        try {
+          // Build PlanInputs from the exact merged bill set we just simulated
+          const toLowerFreq = (f: PaySchedule['frequency']): 'weekly'|'fortnightly'|'four_weekly'|'monthly' => {
+            switch (f) {
+              case 'WEEKLY': return 'weekly';
+              case 'FORTNIGHTLY':
+              case 'BIWEEKLY': return 'fortnightly';
+              case 'FOUR_WEEKLY': return 'four_weekly';
+              case 'MONTHLY':
+              default: return 'monthly';
             }
-          }, 0);
-        } else {
+          };
+          const planForSuggestions: PlanInputs = {
+            a: { netMonthly: 0, freq: toLowerFreq(payScheduleA.frequency), firstPayISO: startDateA },
+            bills: mergedBills.map(b => ({
+              id: b.id || '',
+              name: b.name,
+              amount: b.amount,
+              dueDateISO: b.dueDate,
+              account: 'A',
+              movable: b.movable,
+              source: b.source as any,
+            })) as any,
+            elecPredicted: [],
+            pots: currentState.pots,
+            startISO: bestStart,
+            minBalance: 0,
+            mode: 'single',
+            weeklyAllowanceA: currentState.weeklyAllowanceA,
+          };
+          const s = generateBillSuggestions(
+            planForSuggestions,
+            { monthlyA: depositA },
+            resultObj.minBalance
+          );
           usePlanStore.getState().setResult({
             ...usePlanStore.getState().result,
-            billSuggestions: workerResult.billSuggestions ?? []
+            billSuggestions: s
           });
+        } catch (e) {
+          console.warn('Bill suggestions generation failed:', e);
         }
 
         setState(prev => ({
@@ -731,8 +767,13 @@ const [state, setState] = useState<AppState>({
         if (!useWorkerOptimization) {
           setTimeout(() => {
             try {
+              const inputsForSuggestions: PlanInputs = {
+                ...(inputs as PlanInputs),
+                fairnessRatio: { a: effA, b: effB },
+              };
+              console.log('[forecast] suggestions fairness inputs', { effA: +effA.toFixed(2), effB: +effB.toFixed(2) });
               const s = generateBillSuggestions(
-                inputs as PlanInputs,
+                inputsForSuggestions,
                 { monthlyA: depositA, monthlyB: depositB },
                 simResult.minBalance
               );
@@ -1537,28 +1578,24 @@ const [state, setState] = useState<AppState>({
                 )}
 
                   {/* Bill Movement Suggestions */}
-                  {storeResult?.billSuggestions && storeResult.billSuggestions.length > 0 && (
-                    <div className="mt-6">
-                      <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                        <Lightbulb className="w-4 h-4" />
-                        Optimization Suggestions
-                      </h4>
-                      <div className="space-y-2">
-                        {storeResult.billSuggestions.map((suggestion, index) => (
-                          <Alert key={index} className="border-blue-200">
-                            <AlertCircle className="w-4 h-4 text-blue-500" />
-                            <AlertDescription>
-                              <strong>Bill Movement:</strong> {suggestion.reason}
-                              <br />
-                            <span className="text-sm text-muted-foreground">
-                              Move from {suggestion.currentDate} to {suggestion.suggestedDate}
-                            </span>
-                          </AlertDescription>
-                        </Alert>
-                      ))}
+                  <div className="mt-6">
+                    <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                      <Lightbulb className="w-4 h-4" />
+                      Optimization Suggestions
+                    </h4>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-xs text-muted-foreground">
+                        {storeResult?.billSuggestions?.length
+                          ? `${storeResult.billSuggestions.length} suggestion${storeResult.billSuggestions.length === 1 ? '' : 's'} available`
+                          : (dateMoves.length > 0 ? 'All suggested changes applied' : 'No suggestions found yet')}
+                      </p>
+                      {!!storeResult?.billSuggestions?.length && (
+                        <Button size="sm" variant="outline" onClick={() => setShowBillWizard(true)}>
+                          Review & Apply
+                        </Button>
+                      )}
                     </div>
                   </div>
-                )}
               </CardContent>
             </Card>
 
@@ -1688,6 +1725,125 @@ const [state, setState] = useState<AppState>({
           </div>
         )}
       </div>
+
+      {/* Review & Apply: Bill Date Suggestions */}
+      {state.step === 'results' && showBillWizard && (
+        <BillDateWizard
+          open={showBillWizard}
+          suggestions={(storeResult?.billSuggestions || []).map(s => ({
+            billId: s.billId,
+            name: s.name || state.bills.find(b => b.id === s.billId)?.name,
+            currentDate: s.currentDate,
+            suggestedDate: s.suggestedDate
+          }))}
+          currentMonthlyA={(state.forecastResult?.depositA || 0) * cyclesPerMonth(state.userA.paySchedule?.frequency)}
+          currentMonthlyB={typeof state.forecastResult?.depositB === 'number' ? (state.forecastResult?.depositB || 0) * cyclesPerMonth(state.userB?.paySchedule?.frequency) : undefined}
+          onPreview={async (ids) => {
+            try {
+              // Rebuild the same merged bill set we use for results, then apply selection
+              const currentState = state;
+              if (!currentState.userA?.paySchedule) return undefined;
+
+              const elecPredicted = (currentState.bills ?? [])
+                .filter(b => b.source === 'predicted-electricity')
+                .map(b => ({ ...b, source: 'predicted-electricity' as const }));
+              const manual = (currentState.bills ?? [])
+                .filter(b => b.source === 'manual')
+                .map(b => ({ ...b, source: b.source ?? 'manual' as const }));
+
+              const firstPayDate = currentState.userB?.paySchedule
+                ? (currentState.userA.paySchedule!.anchorDate < currentState.userB.paySchedule.anchorDate
+                    ? currentState.userA.paySchedule!.anchorDate
+                    : currentState.userB.paySchedule.anchorDate)
+                : currentState.userA.paySchedule!.anchorDate;
+
+              const provisionalBills = [...manual, ...elecPredicted];
+              const allBillsProvisional = rollForwardPastBills(provisionalBills, firstPayDate);
+
+              const startDateA = getStartDate(currentState.userA.paySchedule!, allBillsProvisional);
+              const payScheduleA: PaySchedule = { ...currentState.userA.paySchedule!, anchorDate: startDateA };
+
+              let startDateB = '';
+              if (currentState.mode === 'joint' && currentState.userB?.paySchedule) {
+                startDateB = getStartDate(currentState.userB.paySchedule!, allBillsProvisional);
+              }
+              const startDate = startDateB && startDateA > startDateB ? startDateB : startDateA;
+
+              const months = 12;
+              const importedA = expandRecurring(detected?.recurring ?? [], startDate, months, 'imp-a-');
+              const importedB = expandRecurring((detected?.recurringB ?? (detected as any)?.allRecurring ?? []), startDate, months, 'imp-b-');
+              let previewBills = [...manual, ...importedA, ...importedB, ...elecPredicted];
+
+              // Apply the selection by id mapping
+              const idToNewDate = new Map<string, string>();
+              (storeResult.billSuggestions || []).forEach(s => { if (ids.includes(s.billId)) idToNewDate.set(s.billId, s.suggestedDate); });
+              previewBills = previewBills.map(b => (b.id && idToNewDate.has(b.id)) ? { ...b, dueDate: idToNewDate.get(b.id)! } : b);
+
+              if (currentState.mode === 'single') {
+                // Align preview bill set to the same "rolled-forward" shape used in results
+                const rb = rollForwardPastBills(
+                  previewBills.map(b => ({
+                    id: b.id || '',
+                    name: b.name,
+                    amount: b.amount,
+                    issueDate: b.issueDate || (b as any).dueDateISO || b.dueDate || startDate,
+                    dueDate: b.dueDate || (b as any).dueDateISO || startDate,
+                    source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as "manual" | "predicted-electricity" | "imported",
+                    movable: b.movable
+                  })),
+                  startDate
+                ).filter(b => !b.dueDate || b.dueDate >= startDate);
+                const depA = findDepositSingle(startDate, payScheduleA, rb, 0);
+                return { a: depA * cyclesPerMonth(payScheduleA.frequency) } as any;
+              } else if (currentState.userB?.paySchedule) {
+                // Mirror fairness computation from results
+                const toMonthlySchedule = (ps: PaySchedule | undefined) => {
+                  if (!ps) return 0;
+                  switch (ps.frequency) {
+                    case 'WEEKLY': return (ps.averageAmount ?? 0) * 52 / 12;
+                    case 'BIWEEKLY':
+                    case 'FORTNIGHTLY': return (ps.averageAmount ?? 0) * 26 / 12;
+                    case 'FOUR_WEEKLY': return (ps.averageAmount ?? 0) * 13 / 12;
+                    case 'MONTHLY':
+                    default: return (ps.averageAmount ?? 0);
+                  }
+                };
+                const payScheduleB: PaySchedule = { ...currentState.userB.paySchedule!, anchorDate: startDateB || currentState.userB.paySchedule!.anchorDate };
+                const monthlyA = toMonthlySchedule(payScheduleA);
+                const monthlyB = toMonthlySchedule(payScheduleB);
+                const allowanceMonthlyA = (currentState.weeklyAllowanceA ?? 0) * 52 / 12;
+                const allowanceMonthlyB = (currentState.weeklyAllowanceB ?? 0) * 52 / 12;
+                const sumA = (currentState.pots ?? []).filter(p => p.owner === 'A').reduce((s,p)=>s+p.monthly,0);
+                const sumB = (currentState.pots ?? []).filter(p => p.owner === 'B').reduce((s,p)=>s+p.monthly,0);
+                const sumJ = (currentState.pots ?? []).filter(p => p.owner === 'JOINT').reduce((s,p)=>s+p.monthly,0);
+                const prelimRatioA = (monthlyA + monthlyB) > 0 ? monthlyA / (monthlyA + monthlyB) : 0.5;
+                const jointShareA = sumJ * prelimRatioA;
+                const jointShareB = sumJ * (1 - prelimRatioA);
+                const effA = monthlyA - allowanceMonthlyA - sumA - jointShareA;
+                const effB = monthlyB - allowanceMonthlyB - sumB - jointShareB;
+                const fairness = (effA + effB) > 0 ? effA / (effA + effB) : 0.5;
+                const { depositA, depositB } = findDepositJoint(startDate, payScheduleA, payScheduleB, previewBills, fairness, 0);
+                return { a: depositA * cyclesPerMonth(payScheduleA.frequency), b: depositB * cyclesPerMonth(payScheduleB.frequency) } as any;
+              }
+            } catch {}
+            return undefined;
+          }}
+          onApply={(selected) => {
+            const moves = selected.map(s => ({
+              id: s.billId,
+              name: s.name || s.billId,
+              fromISO: s.currentDate,
+              toISO: s.suggestedDate
+            }));
+            if (moves.length === 0) { setShowBillWizard(false); return; }
+            setDateMoves(prev => [...prev, ...moves]);
+            setShowBillWizard(false);
+            // Ensure moves are applied in the very next recompute using the fresh list
+            runForecast({ ...state }, moves);
+          }}
+          onClose={() => setShowBillWizard(false)}
+        />
+      )}
     </div>
   );
 };

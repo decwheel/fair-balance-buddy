@@ -248,6 +248,18 @@ function App() {
         setHasManualSelection(true); // Mark as manual selection
         return runDetection(txA, txB);
       };
+      // Dev helper: reset all in-memory state and any localStorage
+      (window as any).__resetPlanStore = () => {
+        try {
+          usePlanStore.getState().setInputs({} as any);
+          usePlanStore.getState().setResult(undefined as any);
+          usePlanStore.getState().setDetected(undefined as any);
+          usePlanStore.getState().setTransactions(undefined as any);
+        } catch {}
+        try { localStorage.clear(); } catch {}
+        try { sessionStorage.clear(); } catch {}
+        try { location.reload(); } catch {}
+      };
     }
   }, [ready, switchToJointMode]);
 

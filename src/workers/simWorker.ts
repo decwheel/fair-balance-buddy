@@ -53,6 +53,8 @@ function simulate(inputs: PlanInputs): SimResult {
         { monthlyA: pick.depositA, monthlyB: pick.depositB || 0 },
         result.minBalance
       );
+      // Debug: surface count to main console via postMessage
+      try { console.log('[simWorker] suggestions (joint):', billSuggestions?.length ?? 0); } catch {}
     } catch (e) {
       // suggestions optional
     }
@@ -77,6 +79,7 @@ function simulate(inputs: PlanInputs): SimResult {
         { monthlyA: pick.depositA },
         result.minBalance
       );
+      try { console.log('[simWorker] suggestions (single):', billSuggestions?.length ?? 0); } catch {}
     } catch (e) {
       // ignore
     }

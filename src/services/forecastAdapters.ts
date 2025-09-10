@@ -143,14 +143,34 @@ export function findDepositSingle(
   // Step 7: ensure timeline never dips below zero
   let result = runSingle(deposit, startDate, pay, bills, { months: 12, buffer: 0 });
   let iterations = 0;
-  while (result.minBalance < 0 && iterations < 20) {
+  while (result.minBalance < 0 && iterations < 24) {
     const shortfallPerMonth = -result.minBalance / 12;
     deposit += shortfallPerMonth / cycles;
     result = runSingle(deposit, startDate, pay, bills, { months: 12, buffer: 0 });
     iterations++;
   }
 
-  return Math.round(deposit);
+  // Safety margin: ceil to avoid rounding back into negative
+  deposit = Math.ceil(deposit);
+  result = runSingle(deposit, startDate, pay, bills, { months: 12, buffer: 0 });
+  if (result.minBalance < 0) {
+    // Incrementally bump until >= 0 (rare after ceil)
+    let guard = 0;
+    while (result.minBalance < 0 && guard++ < 5) {
+      deposit += 1;
+      result = runSingle(deposit, startDate, pay, bills, { months: 12, buffer: 0 });
+    }
+  }
+
+  // Gentle edge ride: shave in small steps while staying >= 0 to reduce snowballing
+  let lowered = true; let stepGuard = 0;
+  while (lowered && stepGuard++ < 6) {
+    const trial = Math.max(0, deposit - 1); // 1€ per-pay nudge
+    const r = runSingle(trial, startDate, pay, bills, { months: 12, buffer: 0 });
+    if (r.minBalance >= 0) { deposit = trial; result = r; } else { lowered = false; }
+  }
+
+  return deposit;
 }
 
 export function findDepositJoint(

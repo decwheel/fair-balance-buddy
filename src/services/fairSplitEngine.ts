@@ -109,7 +109,16 @@ export function optimizeDeposits(inputs: PlanInputs): StartPick {
         const mid = (lo + hi) / 2;
         if (feasible(mid)) { bestD = mid; hi = mid; } else { lo = mid; }
       }
-      const pick = { startISO, depositA: +(bestD / cycles).toFixed(2) };
+      // Ride the zero edge: binary search already finds a feasible minimum.
+      // Add a gentle scale-down thereafter to shave surplus while maintaining min >= 0.
+      let perPay = bestD / cycles;
+      let res = runSingle(perPay, startISO, scheduleA, bills, { months, buffer: 0 });
+      for (let i = 0; i < 16; i++) {
+        const trial = perPay * 0.98;
+        const r = runSingle(trial, startISO, scheduleA, bills, { months, buffer: 0 });
+        if (r.minBalance >= minBalance) { perPay = trial; res = r; } else { break; }
+      }
+      const pick = { startISO, depositA: +perPay.toFixed(2) };
       if (!best) best = pick;
       else {
         const bestMonthly = best.depositA * cyclesPerMonth(scheduleA.frequency);

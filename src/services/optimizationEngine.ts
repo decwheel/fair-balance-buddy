@@ -2,6 +2,7 @@
 import { addDays, parseISO, formatISO } from "date-fns";
 import type { PlanInputs, SimResult, Bill, PaySpec, PayFrequency } from "../types";
 import { payDates } from "../lib/dateUtils";
+import { runSingle as runSingleAcc, runJoint as runJointAcc, findDepositSingle as findDepositSingleAcc, findDepositJoint as findDepositJointAcc } from "./forecastAdapters";
 
 interface OptimizationResult {
   bestStartDate: string;
@@ -18,6 +19,8 @@ interface OptimizationResult {
   }>;
   billSuggestions: Array<{
     billId: string;
+    name?: string;
+    amount?: number;
     currentDate: string;
     suggestedDate: string;
     savingsAmount: number;
@@ -57,77 +60,246 @@ function cyclesPerMonth(freq: "WEEKLY" | "FORTNIGHTLY" | "MONTHLY" | "BIWEEKLY" 
 export function generateBillSuggestions(
   inputs: PlanInputs,
   currentOptimizedDeposits: { monthlyA: number; monthlyB?: number },
-  currentMinBalance: number
+  _currentMinBalance: number
 ): OptimizationResult['billSuggestions'] {
-  const suggestions: OptimizationResult['billSuggestions'] = [];
-  
-  // Only suggest moving bills that are movable and variable
-  const movableBills = inputs.bills.filter(bill => bill.movable && bill.dueDateISO);
-  
-  for (const bill of movableBills) {
-    const originalDate = bill.dueDateISO!;
-    const testDates: string[] = [];
-    
-    // Generate test dates: 7 days before to 21 days after current due date
-    const baseDate = new Date(originalDate);
-    for (let offset = -7; offset <= 21; offset += 7) {
-      const testDate = new Date(baseDate);
-      testDate.setDate(testDate.getDate() + offset);
-      const testDateISO = testDate.toISOString().split('T')[0];
-      if (testDateISO !== originalDate) {
-        testDates.push(testDateISO);
-      }
+  // Fair-split–inspired approach adapted to FBB’s data model
+  const startISO = inputs.startISO;
+  const freqA = mapFrequency(inputs.a.freq);
+  const payA: PaySchedule = { frequency: freqA, anchorDate: inputs.a.firstPayISO } as any;
+  const hasB = !!inputs.b;
+  const freqB = hasB ? mapFrequency(inputs.b!.freq) : undefined;
+  const payB: PaySchedule | undefined = hasB ? { frequency: freqB!, anchorDate: inputs.b!.firstPayISO } as any : undefined;
+  const fairness = inputs.fairnessRatio ? (inputs.fairnessRatio.a / (inputs.fairnessRatio.a + inputs.fairnessRatio.b)) : 0.5;
+  const AWKWARD = /mortgage|rent|loan|car\s*finance|hp\b|tax|insurance/i;
+
+  // Build working bill list for the 12‑month horizon
+  type FB = ForecastBill;
+  const toWorkBill = (b: Bill): FB => ({
+    id: b.id,
+    name: b.name,
+    amount: b.amount,
+    issueDate: (b as any).dueDateISO || (b as any).dueDate || b.issueDate || startISO,
+    dueDate: (b as any).dueDateISO || (b as any).dueDate || b.issueDate || startISO,
+    source: (b as any).source,
+    movable: (b as any).movable
+  });
+  const allBills: FB[] = [...(inputs.bills || []), ...(inputs.elecPredicted || [])]
+    .map(toWorkBill)
+    .filter(b => !b.dueDate || b.dueDate >= startISO);
+
+  // Compute required monthly total for a bills override
+  function scoreMonthlyTotal(billsOverride: FB[]): { monthlyTotal: number; minBalance: number } {
+    if (!hasB) {
+      const dep = findDepositSingleAcc(startISO, payA as any, billsOverride, inputs.minBalance);
+      const sim = runSingleAcc(dep, startISO, payA as any, billsOverride as any, { months: 12, buffer: 0 });
+      const monthlyA = dep * cyclesPerMonth(payA.frequency);
+      return { monthlyTotal: monthlyA, minBalance: sim.minBalance };
     }
-    
-    for (const testDate of testDates) {
-      try {
-        // Create modified inputs with the bill moved to test date
-        const modifiedBills = inputs.bills.map(b => 
-          b.id === bill.id ? { ...b, dueDateISO: testDate } : b
-        );
-        const modifiedInputs = { ...inputs, bills: modifiedBills };
-        
-        // Calculate optimization with modified bill date
-        const testOptimization = findOptimalStartDate(modifiedInputs);
-        const testDeposits = testOptimization.optimizedDeposits;
-        const testMinBalance = testOptimization.scenarios[0]?.minBalance || 0;
-        
-        // Calculate potential savings (convert per-pay deposits to monthly totals)
-        const cyclesA = cyclesPerMonth(mapFrequency(inputs.a.freq));
-        const cyclesB = inputs.b ? cyclesPerMonth(mapFrequency(inputs.b.freq)) : 0;
-        const currentTotal =
-          currentOptimizedDeposits.monthlyA * cyclesA +
-          (currentOptimizedDeposits.monthlyB || 0) * cyclesB;
-        const testTotal =
-          testDeposits.monthlyA * cyclesA +
-          (testDeposits.monthlyB || 0) * cyclesB;
-        const savingsAmount = currentTotal - testTotal;
-        
-        // Suggest if it provides meaningful savings (>€10/month) and maintains positive balance
-        if (savingsAmount > 10 && testMinBalance >= 0) {
-          const daysDiff = Math.floor((new Date(testDate).getTime() - new Date(originalDate).getTime()) / (1000 * 60 * 60 * 24));
-          const direction = daysDiff > 0 ? 'later' : 'earlier';
-          const reason = `Moving ${Math.abs(daysDiff)} days ${direction} reduces monthly deposits by €${savingsAmount.toFixed(0)}`;
-          
-          suggestions.push({
-            billId: bill.id!,
-            currentDate: originalDate,
-            suggestedDate: testDate,
-            savingsAmount: Math.round(savingsAmount),
-            reason
-          });
-        }
-      } catch (error) {
-        // Skip failed suggestions
-        continue;
-      }
+    const { depositA, depositB } = findDepositJointAcc(startISO, payA as any, payB as any, billsOverride as any, fairness, inputs.minBalance);
+    const sim = runJointAcc(
+      depositA,
+      depositB,
+      startISO,
+      payA as any,
+      payB as any,
+      billsOverride as any,
+      { months: 12, fairnessRatioA: fairness, weeklyAllowanceA: inputs.weeklyAllowanceA, weeklyAllowanceB: inputs.weeklyAllowanceB }
+    );
+    const monthlyA = depositA * cyclesPerMonth(payA.frequency);
+    const monthlyB = depositB * cyclesPerMonth((payB as any).frequency);
+    return { monthlyTotal: monthlyA + monthlyB, minBalance: sim.minBalance };
+  }
+
+  const base = scoreMonthlyTotal(allBills);
+
+  // Build baseline timeline with current deposits (accurate sim) to locate the trough and for gating
+  const baselineSim = !hasB
+    ? runSingleAcc(currentOptimizedDeposits.monthlyA || 0, startISO, payA as any, allBills as any, { months: 12, buffer: 0 })
+    : runJointAcc(currentOptimizedDeposits.monthlyA || 0, (currentOptimizedDeposits.monthlyB || 0), startISO, payA as any, payB as any, allBills as any, { months: 12, fairnessRatioA: fairness, weeklyAllowanceA: inputs.weeklyAllowanceA, weeklyAllowanceB: inputs.weeklyAllowanceB });
+  let minIdx = 0; let minVal = Infinity;
+  baselineSim.timeline.forEach((pt, i) => { if (pt.balance < minVal) { minVal = pt.balance; minIdx = i; } });
+  const troughISO = baselineSim.timeline[Math.max(0, minIdx)]?.date || startISO;
+
+  // Gating: only propose suggestions when materially above ideal or clearly overfunded
+  function monthlyCost(bills: FB[]): number {
+    if (!bills.length) return 0;
+    const dues = bills.map(b => b.dueDate).filter(Boolean).sort();
+    const first = dues[0] || startISO;
+    const last = dues[dues.length - 1] || startISO;
+    const total = bills.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+    const a = new Date(first); const z = new Date(last);
+    const months = (z.getUTCFullYear() - a.getUTCFullYear()) * 12 + (z.getUTCMonth() - a.getUTCMonth()) + 1;
+    return months > 0 ? total / months : total;
+  }
+  const idealMonthly = monthlyCost(allBills);
+  const currentMonthly = (() => {
+    const a = (currentOptimizedDeposits.monthlyA || 0) * cyclesPerMonth(payA.frequency);
+    const b = (currentOptimizedDeposits.monthlyB || 0) * (hasB ? cyclesPerMonth((payB as any).frequency) : 0);
+    return a + b;
+  })();
+  const factor = idealMonthly > 0 ? currentMonthly / idealMonthly : 1;
+  const trigger = hasB ? 1.03 : 1.05;
+  const overfunded = (baselineSim.endBalance > Math.max(500, 0.75 * idealMonthly)) || (baselineSim.endBalance > currentMonthly);
+  console.log('[opt] gating', {
+    mode: hasB ? 'joint' : 'single',
+    idealMonthly: Math.round(idealMonthly),
+    currentMonthly: Math.round(currentMonthly),
+    factor: +factor.toFixed(4),
+    trigger,
+    endBalance: Math.round(baselineSim.endBalance),
+    overfunded
+  });
+  if (!(factor > trigger) && !overfunded) {
+    console.log('[opt] no suggestions: already close to ideal and not overfunded');
+    return [];
+  }
+
+  // Top offenders by summed amount up to trough (movable, non-awkward, non-electricity)
+  const offendersMap = new Map<string, { total: number; name?: string }>();
+  for (const b of allBills) {
+    if (b.source === 'predicted-electricity') continue;
+    if (b.movable === false) continue;
+    if (b.name && AWKWARD.test(b.name)) continue;
+    if (!b.dueDate || b.dueDate > troughISO) continue;
+    const key = String(b.id || b.name || `${b.amount}-${b.dueDate}`);
+    const cur = offendersMap.get(key) || { total: 0, name: b.name };
+    cur.total += Math.abs(b.amount);
+    offendersMap.set(key, cur);
+  }
+  let offenders = Array.from(offendersMap.entries())
+    .sort((a, b) => b[1].total - a[1].total)
+    .slice(0, 6)
+    .map(([id]) => id);
+  if (!offenders.length) {
+    // Fallback: look over the first ~6 months from start to seed offenders
+    const limitISO = formatISO(addDays(parseISO(startISO), 180), { representation: 'date' });
+    for (const b of allBills) {
+      if (b.source === 'predicted-electricity') continue;
+      if (b.movable === false) continue;
+      if (b.name && AWKWARD.test(b.name)) continue;
+      if (!b.dueDate || b.dueDate < startISO || b.dueDate > limitISO) continue;
+      const key = String(b.id || b.name || `${b.amount}-${b.dueDate}`);
+      const cur = offendersMap.get(key) || { total: 0, name: b.name };
+      cur.total += Math.abs(b.amount);
+      offendersMap.set(key, cur);
+    }
+    offenders = Array.from(offendersMap.entries())
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 6)
+      .map(([id]) => id);
+    // If still empty, force-pick the first 3 upcoming bills as offenders
+    if (!offenders.length) {
+      const upcoming = allBills
+        .filter(b => b.dueDate >= startISO && b.source !== 'predicted-electricity' && b.movable !== false && !(b.name && AWKWARD.test(b.name)))
+        .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+        .slice(0, 3)
+        .map(b => String(b.id || b.name));
+      offenders = Array.from(new Set(upcoming));
     }
   }
-  
-  // Sort by savings amount (highest first) and return top 3
-  return suggestions
-    .sort((a, b) => b.savingsAmount - a.savingsAmount)
-    .slice(0, 3);
+
+  // Anchor DOMs + nearest payday DOM helper
+  const ANCHORS = [2, 4, 5, 8, 10, 12, 15, 17, 19, 22, 24, 26, 28, 29];
+  const nearestPayDom = (fromISO: string): number | null => {
+    const cands: string[] = [];
+    const months = 12;
+    cands.push(...payDates(inputs.a.firstPayISO, inputs.a.freq, months));
+    if (inputs.b) cands.push(...payDates(inputs.b.firstPayISO, inputs.b.freq, months));
+    const fromTs = new Date(fromISO).getTime();
+    const next = cands.map(d => ({ d, t: new Date(d).getTime() }))
+      .filter(x => x.t >= fromTs)
+      .sort((x, y) => x.t - y.t)[0]?.d;
+    return next ? new Date(next).getDate() : null;
+  };
+  const toMonthISO = (inISO: string, dom: number): string => {
+    const d = new Date(inISO);
+    const y = d.getUTCFullYear(); const m = d.getUTCMonth();
+    const last = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    const clamped = Math.max(1, Math.min(dom, last));
+    return new Date(Date.UTC(y, m, clamped)).toISOString().slice(0, 10);
+  };
+
+  const maxMoves = hasB ? 12 : 8;
+  const minGain = 0.00005; // 0.005% — be more eager so users see ideas
+  let bestMonthly = base.monthlyTotal;
+  const chosen: { billId: string; fromISO: string; toISO: string; deltaMonthly: number }[] = [];
+  const moved = new Set<string>();
+
+  for (let step = 0; step < maxMoves; step++) {
+    let stepBest: { billId?: string; fromISO?: string; toISO?: string; newMonthly?: number; delta?: number } = {};
+
+    for (const name of offenders) {
+      const occs = allBills
+        .filter(b => String(b.id || b.name) === name)
+        .filter(b => b.dueDate >= startISO)
+        .filter(b => b.movable !== false && !(b.name && AWKWARD.test(b.name)))
+        .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+      for (const occ of occs) {
+        const key = `${occ.id || occ.name}-${occ.dueDate}`;
+        if (moved.has(key)) continue;
+        const domSet = new Set<number>(hasB ? ANCHORS : [5, 12, 19, 26]);
+        const pd = nearestPayDom(occ.dueDate);
+        if (pd) domSet.add(pd);
+        for (const dom of domSet) {
+          const target = toMonthISO(occ.dueDate, dom);
+          if (target === occ.dueDate) continue;
+          const override = allBills.map(b => (b === occ ? { ...b, dueDate: target } : b));
+          const score = scoreMonthlyTotal(override);
+          if (score.minBalance < 0) continue;
+          if (!stepBest.newMonthly || score.monthlyTotal < stepBest.newMonthly) {
+            stepBest = { billId: occ.id || `${occ.name}-${occ.dueDate}`, fromISO: occ.dueDate, toISO: target, newMonthly: score.monthlyTotal, delta: bestMonthly - score.monthlyTotal };
+          }
+        }
+        break; // one occurrence per offender per step
+      }
+    }
+
+    if (!stepBest.newMonthly) break;
+    const gain = (stepBest.delta || 0) / bestMonthly;
+    if (gain < 0.0005) break;
+    bestMonthly = stepBest.newMonthly!;
+    moved.add(stepBest.billId! + '-' + stepBest.fromISO);
+    chosen.push({ billId: stepBest.billId!, fromISO: stepBest.fromISO!, toISO: stepBest.toISO!, deltaMonthly: stepBest.delta || 0 });
+  }
+
+  // Minimum meaningful monthly saving before we bother the user
+  // Convert current per-pay deposits to monthly for a fair comparison
+  const baseMonthly = (() => {
+    const a = (currentOptimizedDeposits.monthlyA || 0) * cyclesPerMonth(payA.frequency);
+    const b = (currentOptimizedDeposits.monthlyB || 0) * (hasB ? cyclesPerMonth((payB as any).frequency) : 0);
+    return a + b;
+  })();
+  const minAbsSave = 5;                // €5/month
+  const minRelSave = 0.005;            // 0.5%
+
+  const primary = chosen
+    .sort((a, b) => b.deltaMonthly - a.deltaMonthly)
+    .slice(0, 6)
+    .map(ch => {
+      const days = Math.round((new Date(ch.toISO).getTime() - new Date(ch.fromISO).getTime()) / (24*60*60*1000));
+      const dir = days > 0 ? 'later' : 'earlier';
+      const occ = allBills.find(b => (b.id && (ch.billId.startsWith(String(b.id)) || ch.billId === b.id)) || (b.name && b.name === ch.billId.split('-')[0]));
+      return {
+        billId: ch.billId,
+        name: occ?.name,
+        amount: occ?.amount,
+        currentDate: ch.fromISO,
+        suggestedDate: ch.toISO,
+        savingsAmount: Math.max(0, Math.round(ch.deltaMonthly)),
+        reason: `Moving ${Math.abs(days)} days ${dir} lowers monthly deposits by about €${Math.max(0, Math.round(ch.deltaMonthly))}`
+      };
+    })
+    // filter out non-meaningful improvements
+    .filter(s => s.savingsAmount >= minAbsSave && (baseMonthly > 0 ? (s.savingsAmount / baseMonthly) >= minRelSave : s.savingsAmount >= minAbsSave));
+
+  const totalMonthlySaved = chosen.reduce((s, ch) => s + (ch.deltaMonthly || 0), 0);
+  console.log('[opt] suggestions result', {
+    chosen: chosen.length,
+    savedPerMonth: Math.round(totalMonthlySaved),
+    beforeMonthly: Math.round(baseMonthly),
+    afterMonthly: Math.round(Math.max(0, baseMonthly - totalMonthlySaved))
+  });
+  return primary;
 }
 
 interface PaySchedule {
