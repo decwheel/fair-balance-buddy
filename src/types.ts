@@ -25,7 +25,13 @@ export type Transaction = {
   bankCode?: string;      // e.g. proprietaryBankTransactionCode
 };
 
-export type SavingsPot = { id: string; name: string; monthly: number; owner: "A"|"B"|"JOINT" };
+export type SavingsPot = {
+  id: string;
+  name: string;
+  monthly: number;
+  owner: "A"|"B"|"JOINT";
+  target?: number; // optional goal amount for Results visuals
+};
 
 export type PaySpec = {
   netMonthly: number;     // normalized to “per month” (e.g. 4-weekly => *13/12*)

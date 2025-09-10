@@ -33,7 +33,7 @@ import { Calendar as DayPicker } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, PieChart, Pie, Cell, Tooltip, Legend, LineChart, Line } from 'recharts';
 import { BillEditorDialog, BillFrequency } from '@/components/bills/BillEditorDialog';
 import { BillDateWizard } from '@/components/bills/BillDateWizard';
 import { generateOccurrences } from '@/utils/recurrence';
@@ -124,17 +124,26 @@ const [state, setState] = useState<AppState>({
   const [recurringMeta, setRecurringMeta] = useState<RecurringMeta>({});
   const [newPotName, setNewPotName] = useState('');
   const [newPotAmount, setNewPotAmount] = useState<number>(0);
+  const [newPotTarget, setNewPotTarget] = useState<number | ''>('');
   const [newPotOwner, setNewPotOwner] = useState<'A' | 'B' | 'JOINT'>('A');
   // New inputs for split pot creation (joint mode)
   const [newPotNameA, setNewPotNameA] = useState('');
   const [newPotAmountA, setNewPotAmountA] = useState<number>(0);
+  const [newPotTargetA, setNewPotTargetA] = useState<number | ''>('');
   const [newPotNameB, setNewPotNameB] = useState('');
   const [newPotAmountB, setNewPotAmountB] = useState<number>(0);
+  const [newPotTargetB, setNewPotTargetB] = useState<number | ''>('');
   const [showBillWizard, setShowBillWizard] = useState(false);
   const [dateMoves, setDateMoves] = useState<Array<{ name: string; fromISO: string; toISO: string }>>([]);
   // Live budget preview + binding mode for two-way coupling between allowances and pots
   const [budgetPreview, setBudgetPreview] = useState<{ availableA: number; availableB: number; monthlyJointA: number; monthlyJointB: number }>({ availableA: 0, availableB: 0, monthlyJointA: 0, monthlyJointB: 0 });
   const [bindingMode, setBindingMode] = useState<{ A: 'allowance' | 'pots'; B: 'allowance' | 'pots' }>({ A: 'allowance', B: 'allowance' });
+  // Detailed savings pots toggle for summary charts
+  const [showPotsA, setShowPotsA] = useState(false);
+  const [showPotsB, setShowPotsB] = useState(false);
+  // Results: Cash Flow Summary view toggles
+  const [summaryView, setSummaryView] = useState<'household'|'person'>('household');
+  const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
 
   // Access plan store early so hooks below can depend on it safely
   const { detected, inputs, result: storeResult } = usePlanStore();
@@ -1231,13 +1240,13 @@ const [state, setState] = useState<AppState>({
     runForecast(updatedState);
   };
 
-  function handleAddPot(potName: string, monthlyAmount: number, owner: 'A'|'B'|'JOINT') {
+  function handleAddPot(potName: string, monthlyAmount: number, owner: 'A'|'B'|'JOINT', target?: number) {
     const potId = (globalThis.crypto && 'randomUUID' in globalThis.crypto)
       ? (globalThis.crypto as any).randomUUID()
       : `pot_${Date.now()}`;
     setState(prev => ({
       ...prev,
-      pots: [...prev.pots, { id: potId, name: potName, monthly: monthlyAmount, owner }]
+      pots: [...prev.pots, { id: potId, name: potName, monthly: monthlyAmount, owner, target }]
     }));
   }
 
@@ -1753,19 +1762,25 @@ const [state, setState] = useState<AppState>({
                       <div className="flex flex-wrap gap-2 items-end">
                         <Input placeholder="A Pot name" value={newPotNameA} onChange={e => setNewPotNameA(e.target.value)} />
                         <Input type="number" placeholder="Monthly amount" className="w-32" value={newPotAmountA} onChange={e => setNewPotAmountA(parseFloat(e.target.value) || 0)} />
-                        <Button onClick={() => { handleAddPot(newPotNameA, newPotAmountA, 'A'); setNewPotNameA(''); setNewPotAmountA(0); }}>Add</Button>
+                        <Input type="number" placeholder="Target (optional)" className="w-36" value={newPotTargetA}
+                          onChange={e => setNewPotTargetA(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))} />
+                        <Button onClick={() => { handleAddPot(newPotNameA, newPotAmountA, 'A', typeof newPotTargetA === 'number' ? newPotTargetA : undefined); setNewPotNameA(''); setNewPotAmountA(0); setNewPotTargetA(''); }}>Add</Button>
                       </div>
                       <div className="flex flex-wrap gap-2 items-end">
                         <Input placeholder="B Pot name" value={newPotNameB} onChange={e => setNewPotNameB(e.target.value)} />
                         <Input type="number" placeholder="Monthly amount" className="w-32" value={newPotAmountB} onChange={e => setNewPotAmountB(parseFloat(e.target.value) || 0)} />
-                        <Button onClick={() => { handleAddPot(newPotNameB, newPotAmountB, 'B'); setNewPotNameB(''); setNewPotAmountB(0); }}>Add</Button>
+                        <Input type="number" placeholder="Target (optional)" className="w-36" value={newPotTargetB}
+                          onChange={e => setNewPotTargetB(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))} />
+                        <Button onClick={() => { handleAddPot(newPotNameB, newPotAmountB, 'B', typeof newPotTargetB === 'number' ? newPotTargetB : undefined); setNewPotNameB(''); setNewPotAmountB(0); setNewPotTargetB(''); }}>Add</Button>
                       </div>
                     </div>
                   ) : (
                     <div className="flex flex-wrap gap-2 items-end mb-2">
                       <Input placeholder="Pot name" value={newPotName} onChange={e => setNewPotName(e.target.value)} />
                       <Input type="number" placeholder="Monthly amount" className="w-32" value={newPotAmount} onChange={e => setNewPotAmount(parseFloat(e.target.value) || 0)} />
-                      <Button onClick={() => { handleAddPot(newPotName, newPotAmount, 'A'); setNewPotName(''); setNewPotAmount(0); }}>Add</Button>
+                      <Input type="number" placeholder="Target (optional)" className="w-36" value={newPotTarget}
+                        onChange={e => setNewPotTarget(e.target.value === '' ? '' : (parseFloat(e.target.value) || 0))} />
+                      <Button onClick={() => { handleAddPot(newPotName, newPotAmount, 'A', typeof newPotTarget === 'number' ? newPotTarget : undefined); setNewPotName(''); setNewPotAmount(0); setNewPotTarget(''); }}>Add</Button>
                     </div>
                   )}
                   {state.mode === 'joint' ? (
@@ -2026,6 +2041,12 @@ const [state, setState] = useState<AppState>({
                       />
                     </div>
                     <div className="rounded-md border p-4 space-y-4">
+                      <Tabs defaultValue="transactions" className="w-full">
+                        <TabsList className="mb-2">
+                          <TabsTrigger value="transactions">Transactions</TabsTrigger>
+                          <TabsTrigger value="savings">Savings</TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="transactions" className="space-y-4">
                       <div>
                         <p className="text-sm font-medium mb-2">Transactions on Selected Date</p>
                         {selectedDate ? (
@@ -2061,6 +2082,164 @@ const [state, setState] = useState<AppState>({
                           <p className="text-sm text-muted-foreground">No saved bills on this date.</p>
                         )}
                       </div>
+                        </TabsContent>
+                        <TabsContent value="savings">
+                          {(() => {
+                            const startISO = (usePlanStore.getState().result as any)?.startISO || timeline[0]?.date || selectedDate;
+                            const toISO = (d: Date) => d.toISOString().slice(0,10);
+                            const parseISO = (s: string) => new Date(s + 'T00:00:00');
+                            const monthsBetween = (aISO: string, bISO: string) => {
+                              const a = parseISO(aISO); const b = parseISO(bISO);
+                              return (b.getFullYear()-a.getFullYear())*12 + (b.getMonth()-a.getMonth());
+                            };
+                            const daysInMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+                            const selected = selectedDate ? parseISO(selectedDate) : (timeline[0] ? parseISO(timeline[0].date) : new Date());
+
+                            // Compute pot balance approximation
+                            const balanceForPot = (p: SavingsPot): number => {
+                              const months = Math.max(0, monthsBetween(startISO, toISO(selected)));
+                              const frac = (selected.getDate()) / daysInMonth(selected);
+                              return (p.monthly * months) + (p.monthly * frac);
+                            };
+
+                            const prelimRatioA = (() => {
+                              const monthsToMonthly = (ps?: PaySchedule) => {
+                                if (!ps || !ps.averageAmount) return 0; switch(ps.frequency){
+                                  case 'WEEKLY': return (ps.averageAmount*52)/12;
+                                  case 'FORTNIGHTLY':
+                                  case 'BIWEEKLY': return (ps.averageAmount*26)/12;
+                                  case 'FOUR_WEEKLY': return (ps.averageAmount*13)/12; default: return ps.averageAmount;
+                                }
+                              };
+                              const mA = monthsToMonthly(state.userA.paySchedule);
+                              const mB = state.userB?.paySchedule ? monthsToMonthly(state.userB?.paySchedule) : 0;
+                              const total = mA + mB; return total > 0 ? (mA/total) : 0.5;
+                            })();
+
+                            const pots = state.pots || [];
+                            const potSlices = pots.map((p, idx) => ({
+                              name: p.name,
+                              value: Math.max(0, balanceForPot(p)),
+                              id: p.id,
+                              owner: p.owner,
+                              target: p.target
+                            })).filter(d => d.value > 0.01);
+                            const totalPot = potSlices.reduce((s,d)=>s+d.value,0) || 1;
+                            const abTotals = potSlices.reduce((acc, s) => {
+                              const aShare = s.owner === 'A' ? s.value : (s.owner === 'B' ? 0 : s.value * prelimRatioA);
+                              const bShare = s.owner === 'B' ? s.value : (s.owner === 'A' ? 0 : s.value * (1-prelimRatioA));
+                              acc.a += aShare; acc.b += bShare; return acc;
+                            }, { a: 0, b: 0 });
+
+                            const AMBER_TINTS = [
+                              'hsl(43 96% 40%)','hsl(43 96% 45%)','hsl(43 96% 50%)','hsl(43 96% 55%)','hsl(43 96% 60%)','hsl(43 96% 65%)'
+                            ];
+                            const colorForIndex = (i: number) => AMBER_TINTS[i % AMBER_TINTS.length];
+
+                            // Build months scrubber
+                            const uniqueMonths = Array.from(new Set(timeline.map(t => t.date.slice(0,7))));
+                            const monthIndex = uniqueMonths.findIndex(m => (selectedDate||'').startsWith(m));
+                            const setMonthByIndex = (i: number) => {
+                              const m = uniqueMonths[i] || uniqueMonths[0]; if (!m) return; const day = String(Math.min(15, new Date(m+'-01').getDate())).padStart(2,'0');
+                              setState(prev => ({ ...prev, selectedDate: `${m}-${day}` }));
+                            };
+
+                            const customTooltip = ({ active, payload }: any) => {
+                              if (!active || !payload || !payload.length) return null;
+                              const p = payload[0];
+                              const percent = p.percent != null ? (p.percent*100).toFixed(0)+'%' : ((p.value/totalPot)*100).toFixed(0)+'%';
+                              const item = p.payload;
+                              const aShare = item.owner === 'A' ? item.value : (item.owner === 'B' ? 0 : item.value * prelimRatioA);
+                              const bShare = item.owner === 'B' ? item.value : (item.owner === 'A' ? 0 : item.value * (1-prelimRatioA));
+                              const lastMonthVal = Math.max(0, item.value - (pots.find(q=>q.id===item.id)?.monthly || 0));
+                              const delta = item.value - lastMonthVal;
+                              const pctTarget = item.target ? Math.min(100, Math.round((item.value / item.target)*100)) : undefined;
+                              return (
+                                <div className="text-xs p-2 rounded border bg-card">
+                                  <div className="font-medium">{item.name}</div>
+                                  <div>Balance: <strong>{formatCurrency(item.value)}</strong> ({percent})</div>
+                                  <div>A/B: {formatCurrency(aShare)} / {formatCurrency(bShare)}</div>
+                                  {pctTarget != null && <div>% of target: <strong>{pctTarget}%</strong></div>}
+                                  <div>Δ vs last month: {formatCurrency(delta)}</div>
+                                </div>
+                              );
+                            };
+
+                            const sparkFor = (p: SavingsPot) => {
+                              const days = 60; const now = selected; const rows: { d: string; v: number }[] = [];
+                              for (let i = days - 1; i >= 0; i--) {
+                                const t = new Date(now); t.setDate(t.getDate() - i);
+                                const monthStartISO = toISO(new Date(t.getFullYear(), t.getMonth(), 1));
+                                const months = Math.max(0, monthsBetween(startISO, monthStartISO));
+                                const frac = t.getDate() / daysInMonth(t);
+                                const v = (p.monthly * months) + (p.monthly * frac);
+                                rows.push({ d: toISO(t), v });
+                              }
+                              return rows;
+                            };
+
+                            const nextDepositFor = (p: SavingsPot) => {
+                              const ownerPs = p.owner==='A' ? state.userA.paySchedule : state.userB?.paySchedule;
+                              if (!ownerPs) return null; const months = 12; const dates = calculatePayDates(ownerPs.frequency, ownerPs.anchorDate, months);
+                              const next = dates.find(d => d >= toISO(selected));
+                              const cycles = ownerPs.frequency==='WEEKLY'?52/12: (ownerPs.frequency==='FORTNIGHTLY'||ownerPs.frequency==='BIWEEKLY'?26/12: ownerPs.frequency==='FOUR_WEEKLY'?13/12:1);
+                              const perPay = p.monthly / cycles; return { date: next, perPay };
+                            };
+
+                            return (
+                              <div>
+                                <div className="h-64 relative">
+                                  <ResponsiveContainer width="100%" height="100%">
+                                    <PieChart>
+                                      <Pie data={potSlices} dataKey="value" nameKey="name" innerRadius={60} outerRadius={90} labelLine={false}>
+                                        {potSlices.map((entry, i) => (<Cell key={`ps-${i}`} fill={colorForIndex(i)} />))}
+                                      </Pie>
+                                      {/* Inner ring A vs B */}
+                                      <Pie data={[{name:'A', value: abTotals.a},{name:'B', value: abTotals.b}]} dataKey="value" nameKey="name" innerRadius={45} outerRadius={55} labelLine={false}>
+                                        <Cell fill="hsl(var(--accent))" />
+                                        <Cell fill="hsl(var(--primary))" />
+                                      </Pie>
+                                      <Tooltip content={customTooltip} />
+                                    </PieChart>
+                                  </ResponsiveContainer>
+                                </div>
+                                {/* Month scrubber */}
+                                <div className="mt-2 flex items-center gap-3">
+                                  <input type="range" min={0} max={Math.max(0, uniqueMonths.length-1)} value={Math.max(0, monthIndex)} onChange={(e)=>setMonthByIndex(parseInt((e.target as any).value))} className="w-full" />
+                                  <span className="text-xs text-muted-foreground">{(selectedDate||'').slice(0,7)}</span>
+                                </div>
+                                {/* Pot list summary */}
+                                <div className="mt-3 space-y-2">
+                                  {(state.pots || []).map((p) => {
+                                    const bal = Math.max(0, balanceForPot(p));
+                                    const n = nextDepositFor(p);
+                                    const tgtPct = p.target ? Math.min(100, Math.round((bal / p.target)*100)) : undefined;
+                                    return (
+                                      <div key={p.id} className="flex items-center justify-between gap-3 border rounded p-2">
+                                        <div className="min-w-0">
+                                          <div className="text-sm truncate">{p.name}</div>
+                                          <div className="text-xs text-muted-foreground">{formatCurrency(bal)}{tgtPct!=null && ` • ${tgtPct}% of target`}</div>
+                                        </div>
+                                        <div className="hidden sm:flex items-center w-32 h-10">
+                                          <ResponsiveContainer width={120} height={36}>
+                                            <LineChart data={sparkFor(p)} margin={{ left: 0, right: 0, top: 8, bottom: 0 }}>
+                                              <Line type="monotone" dataKey="v" stroke="hsl(var(--warning))" strokeWidth={2} dot={false} />
+                                            </LineChart>
+                                          </ResponsiveContainer>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                          {p.target != null && <Badge variant="secondary">Target {formatCurrency(p.target)}</Badge>}
+                                          {n?.date && <Badge variant="secondary">Next {formatCurrency(n.perPay)} on {n.date}</Badge>}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </TabsContent>
+                      </Tabs>
                     </div>
                   </CardContent>
 
@@ -2072,6 +2251,325 @@ const [state, setState] = useState<AppState>({
                     initialValues={billEditing ? { name: billEditing.name, amount: billEditing.amount, dueDate: billEditing.dueDate, frequency: 'one-off' as BillFrequency } : undefined}
                     onSubmit={handleBillSubmit}
                   />
+                </Card>
+              );
+            })()}
+
+            {/* Cash Flow Summary (Per Person) */}
+            {(() => {
+              // Helper: cycles per month for a PaySchedule frequency
+              const cyclesPerMonthLocal = (freq?: PaySchedule["frequency"]) => {
+                switch (freq) {
+                  case 'WEEKLY': return 52 / 12;
+                  case 'FORTNIGHTLY':
+                  case 'BIWEEKLY': return 26 / 12;
+                  case 'FOUR_WEEKLY': return 13 / 12;
+                  case 'MONTHLY':
+                  default: return 1;
+                }
+              };
+
+              // Pull frozen monthly incomes and deposits if available
+              const frozen = (usePlanStore.getState().result as any)?.frozenBudget as
+                | { monthlyIncomeA: number; monthlyIncomeB: number; monthlyDepositA: number; monthlyDepositB: number }
+                | undefined;
+
+              const monthlyIncomeA = frozen?.monthlyIncomeA ?? (
+                state.userA.paySchedule?.averageAmount ? state.userA.paySchedule.averageAmount * cyclesPerMonthLocal(state.userA.paySchedule.frequency) : 0
+              );
+              const monthlyIncomeB = state.mode === 'joint'
+                ? (frozen?.monthlyIncomeB ?? (state.userB?.paySchedule?.averageAmount ? (state.userB.paySchedule.averageAmount * cyclesPerMonthLocal(state.userB.paySchedule.frequency)) : 0))
+                : 0;
+
+              const monthlyDepositA = frozen?.monthlyDepositA ?? ((state.forecastResult?.depositA || 0) * cyclesPerMonthLocal(state.userA.paySchedule?.frequency));
+              const monthlyDepositB = state.mode === 'joint' ? (
+                frozen?.monthlyDepositB ?? ((state.forecastResult?.depositB || 0) * cyclesPerMonthLocal(state.userB?.paySchedule?.frequency))
+              ) : 0;
+
+              const allowanceMonthlyA = (state.weeklyAllowanceA ?? 0) * 52 / 12;
+              const allowanceMonthlyB = (state.weeklyAllowanceB ?? 0) * 52 / 12;
+
+              const potsA = (state.pots || []).filter(p => p.owner === 'A');
+              const potsB = (state.pots || []).filter(p => p.owner === 'B');
+              const potsJ = (state.pots || []).filter(p => p.owner === 'JOINT');
+              const sumA = potsA.reduce((s, p) => s + p.monthly, 0);
+              const sumB = potsB.reduce((s, p) => s + p.monthly, 0);
+              const sumJ = potsJ.reduce((s, p) => s + p.monthly, 0);
+
+              // Split joint pots by income share (same as elsewhere)
+              const totalIncome = (monthlyIncomeA || 0) + (monthlyIncomeB || 0);
+              const prelimRatioA = totalIncome > 0 ? (monthlyIncomeA / totalIncome) : 0.5;
+              const jointShareA = sumJ * prelimRatioA;
+              const jointShareB = sumJ * (1 - prelimRatioA);
+
+              const savingsMonthlyA = sumA + jointShareA;
+              const savingsMonthlyB = sumB + jointShareB;
+
+              const leftoverA = Math.max(0, (monthlyIncomeA || 0) - allowanceMonthlyA - monthlyDepositA - savingsMonthlyA);
+              const leftoverB = Math.max(0, (monthlyIncomeB || 0) - (state.mode === 'joint' ? (allowanceMonthlyB + monthlyDepositB) : 0) - savingsMonthlyB);
+
+              // Pie data builders
+              const makePieData = (labelPrefix: 'A' | 'B') => {
+                const isA = labelPrefix === 'A';
+                const data = [
+                  { name: 'Bills deposit', value: isA ? monthlyDepositA : monthlyDepositB, key: 'deposit' },
+                  { name: 'Weekly allowance', value: isA ? allowanceMonthlyA : allowanceMonthlyB, key: 'allowance' },
+                  { name: 'Savings pots', value: isA ? savingsMonthlyA : savingsMonthlyB, key: 'savings' },
+                  { name: 'Leftover', value: isA ? leftoverA : leftoverB, key: 'leftover' }
+                ].filter(d => d.value > 0.01);
+                return data;
+              };
+
+              const COLORS: Record<string, string> = {
+                deposit: 'hsl(var(--chart-deposit))',
+                allowance: 'hsl(270 80% 70%)',
+                savings: 'hsl(var(--warning))',
+                leftover: 'hsl(var(--success))'
+              };
+
+              const renderCustomizedLabel = (props: any) => {
+                const { cx, cy, midAngle, innerRadius, outerRadius, percent } = props;
+                const RADIAN = Math.PI / 180;
+                const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+                const x = cx + radius * Math.cos(-midAngle * RADIAN);
+                const y = cy + radius * Math.sin(-midAngle * RADIAN);
+                return percent > 0.05 ? (
+                  <text x={x} y={y} fill="#fff" textAnchor={x > cx ? 'start' : 'end'} dominantBaseline="central" className="text-[10px]">
+                    {(percent * 100).toFixed(0)}%
+                  </text>
+                ) : null;
+              };
+
+              const LegendFmt = (value: any) => <span className="text-sm">{value}</span>;
+              const fairnessRatioA = (monthlyDepositA + monthlyDepositB) > 0 ? (monthlyDepositA / (monthlyDepositA + monthlyDepositB)) : 1;
+              const fmt = (n: number) => formatCurrency(+n.toFixed(2));
+
+              return (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5" />
+                      Cash Flow Summary
+                    </CardTitle>
+                    <CardDescription>
+                      Where each person’s money goes per month. Split is based on income after allowances and savings.
+                    </CardDescription>
+                    {state.mode === 'joint' && (
+                      <div className="mt-2">
+                        <div className="inline-flex rounded-md border p-1">
+                          <button
+                            className={`px-3 py-1 rounded ${summaryView==='household' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                            onClick={() => setSummaryView('household')}
+                          >Household</button>
+                          <button
+                            className={`px-3 py-1 rounded ${summaryView==='person' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                            onClick={() => setSummaryView('person')}
+                          >Per-person</button>
+                        </div>
+                      </div>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    {/* Household view (joint mode) */}
+                    {state.mode === 'joint' && summaryView === 'household' ? (
+                      (() => {
+                        const combinedIncome = (monthlyIncomeA || 0) + (monthlyIncomeB || 0);
+                        const combinedBills = (monthlyDepositA || 0) + (monthlyDepositB || 0);
+                        const combinedAllowance = allowanceMonthlyA + allowanceMonthlyB;
+                        const combinedSavings = (sumA + sumB + sumJ);
+                        const combinedLeftover = Math.max(0, combinedIncome - combinedBills - combinedAllowance - combinedSavings);
+                        const data = [
+                          { name: 'Bills', value: combinedBills, key: 'deposit' },
+                          { name: 'Weekly allowance', value: combinedAllowance, key: 'allowance' },
+                          { name: 'Savings', value: combinedSavings, key: 'savings' },
+                          { name: 'Leftover', value: combinedLeftover, key: 'leftover' }
+                        ];
+                        const COLORS: Record<string,string> = {
+                          deposit: 'hsl(var(--chart-deposit))',
+                          allowance: 'hsl(270 80% 70%)',
+                          savings: 'hsl(var(--warning))',
+                          leftover: 'hsl(var(--success))'
+                        };
+                        const total = data.reduce((s,d)=>s+d.value,0) || 1;
+                        const tooltip = ({ active, payload }: any) => {
+                          if (!active || !payload || !payload.length) return null;
+                          const p = payload[0];
+                          const percent = ((p.value/total)*100).toFixed(0)+'%';
+                          return <div className="text-xs p-2 rounded border bg-card">{p.name}: <strong>{formatCurrency(p.value)}</strong> ({percent})</div>;
+                        };
+                        return (
+                          <div className="grid grid-cols-1">
+                            <div className="h-72 relative">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie data={data} dataKey="value" nameKey="name" innerRadius={70} outerRadius={110} labelLine={false}>
+                                    {data.map((d,i)=>(<Cell key={i} fill={COLORS[d.key]} />))}
+                                  </Pie>
+                                  <Tooltip content={tooltip} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                <div className="text-xs text-muted-foreground">Combined income</div>
+                                <div className="text-lg font-semibold">{formatCurrency(combinedIncome)}/mo</div>
+                                <div className="mt-1 text-xs text-muted-foreground">Leftover</div>
+                                <div className="text-base font-medium text-success">{formatCurrency(combinedLeftover)}/mo</div>
+                              </div>
+                            </div>
+                            <div className="mt-2 text-xs">
+                              <div className="grid grid-cols-2 gap-1">
+                                {data.map((d,i)=>{
+                                  const pct = ((d.value/total)*100).toFixed(0)+'%';
+                                  return (
+                                    <div key={i} className="flex items-center gap-2">
+                                      <span className="inline-block w-2 h-2 rounded-full" style={{ background: COLORS[d.key] }} />
+                                      <span className="text-muted-foreground">{d.name}:</span>
+                                      <span className="font-medium">{formatCurrency(d.value)}</span>
+                                      <span className="text-muted-foreground">({pct})</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div className="mt-3 text-xs text-muted-foreground">
+                              <Button size="sm" variant="ghost" className="px-2 h-7" onClick={()=>setShowHouseholdDetails(v=>!v)}>
+                                {showHouseholdDetails ? 'Hide details' : 'View details'}
+                              </Button>
+                              {showHouseholdDetails && (
+                                <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                  <div className="rounded border p-2">Bills deposit (mo): <strong>{formatCurrency(combinedBills)}</strong></div>
+                                  <div className="rounded border p-2">Allowance total (mo): <strong>{formatCurrency(combinedAllowance)}</strong></div>
+                                  <div className="rounded border p-2">Savings total (mo): <strong>{formatCurrency(combinedSavings)}</strong></div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                    <div className={`grid gap-6 ${state.mode === 'joint' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                      {/* Person A */}
+                      <div className="rounded-md border p-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-sm font-medium">{state.mode === 'joint' ? 'Person A' : 'You'}</p>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="secondary">Income: {fmt(monthlyIncomeA)}</Badge>
+                            <Badge variant="secondary">Leftover: {fmt(leftoverA)}</Badge>
+                          </div>
+                        </div>
+                        <div className="h-64">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={makePieData('A')} dataKey="value" nameKey="name" outerRadius={80} labelLine={false} label={renderCustomizedLabel}>
+                                {makePieData('A').map((entry, index) => (
+                                  <Cell key={`cell-a-${index}`} fill={COLORS[entry.key]} />
+                                ))}
+                              </Pie>
+                              <Tooltip formatter={(v: any, n: any) => [fmt(v as number), n as string]} />
+                              <Legend verticalAlign="bottom" height={36} formatter={LegendFmt} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="mt-3 text-xs text-muted-foreground space-y-1">
+                          <div>
+                            {(() => { const ps = state.userA.paySchedule; const freq = ps?.frequency; const perPay = (state.forecastResult?.depositA || 0); const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); return (
+                              <>Bills deposit: <strong>{fmt(monthlyDepositA)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
+                            ); })()}
+                          </div>
+                          <div>Allowance: <strong>{fmt(allowanceMonthlyA)}/mo</strong> (<span>{formatCurrency(state.weeklyAllowanceA || 0)}/wk</span>)</div>
+                          <div className="flex items-center justify-between">
+                            <span>
+                              {(() => { const ps = state.userA.paySchedule; const freq = ps?.frequency; const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); const perPay = savingsMonthlyA / cyclesPerMonthLocal(ps?.frequency); return (
+                                <>Savings: <strong>{fmt(savingsMonthlyA)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
+                              ); })()}
+                            </span>
+                            {(potsA.length + potsJ.length) > 0 && (
+                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPotsA(s => !s)}>
+                                {showPotsA ? 'Hide details' : 'View details'}
+                              </Button>
+                            )}
+                          </div>
+                          {showPotsA && (
+                            <ul className="list-disc ml-5">
+                              {potsA.map(p => (
+                                <li key={p.id}>{p.name}: {fmt(p.monthly)}</li>
+                              ))}
+                              {potsJ.length > 0 && (
+                                <li>Joint share: {fmt(jointShareA)}</li>
+                              )}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Person B (joint only) */}
+                      {state.mode === 'joint' && (
+                        <div className="rounded-md border p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <p className="text-sm font-medium">Person B</p>
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary">Income: {fmt(monthlyIncomeB)}</Badge>
+                              <Badge variant="secondary">Leftover: {fmt(leftoverB)}</Badge>
+                            </div>
+                          </div>
+                          <div className="h-64">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <PieChart>
+                                <Pie data={makePieData('B')} dataKey="value" nameKey="name" outerRadius={80} labelLine={false} label={renderCustomizedLabel}>
+                                  {makePieData('B').map((entry, index) => (
+                                    <Cell key={`cell-b-${index}`} fill={COLORS[entry.key]} />
+                                  ))}
+                                </Pie>
+                                <Tooltip formatter={(v: any, n: any) => [fmt(v as number), n as string]} />
+                                <Legend verticalAlign="bottom" height={36} formatter={LegendFmt} />
+                              </PieChart>
+                            </ResponsiveContainer>
+                          </div>
+                          <div className="mt-3 text-xs text-muted-foreground space-y-1">
+                            <div>
+                              {(() => { const ps = state.userB?.paySchedule; const freq = ps?.frequency; const perPay = (state.forecastResult?.depositB || 0); const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); return (
+                                <>Bills deposit: <strong>{fmt(monthlyDepositB)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
+                              ); })()}
+                            </div>
+                            <div>Allowance: <strong>{fmt(allowanceMonthlyB)}/mo</strong> (<span>{formatCurrency(state.weeklyAllowanceB || 0)}/wk</span>)</div>
+                            <div className="flex items-center justify-between">
+                              <span>
+                                {(() => { const ps = state.userB?.paySchedule; const freq = ps?.frequency; const label = freq==='WEEKLY'?'week': (freq==='FORTNIGHTLY'||freq==='BIWEEKLY'?'2 weeks': (freq==='FOUR_WEEKLY'?'4 weeks':'month')); const perPay = savingsMonthlyB / cyclesPerMonthLocal(ps?.frequency); return (
+                                  <>Savings: <strong>{fmt(savingsMonthlyB)}/mo</strong> (<span>{formatCurrency(perPay)} per {label}</span>)</>
+                                ); })()}
+                              </span>
+                              {(potsB.length + potsJ.length) > 0 && (
+                                <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPotsB(s => !s)}>
+                                  {showPotsB ? 'Hide details' : 'View details'}
+                                </Button>
+                              )}
+                            </div>
+                            {showPotsB && (
+                              <ul className="list-disc ml-5">
+                                {potsB.map(p => (
+                                  <li key={p.id}>{p.name}: {fmt(p.monthly)}</li>
+                                ))}
+                                {potsJ.length > 0 && (
+                                  <li>Joint share: {fmt(jointShareB)}</li>
+                                )}
+                              </ul>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    )}
+
+                    {/* Fairness summary */}
+                    {state.mode === 'joint' && (
+                      <div className="mt-4 text-xs text-muted-foreground">
+                        <p>
+                          Bill split: <strong>{(fairnessRatioA * 100).toFixed(0)}%</strong> A / <strong>{((1 - fairnessRatioA) * 100).toFixed(0)}%</strong> B
+                          {' '}based on effective income after allowances and savings.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
                 </Card>
               );
             })()}
@@ -2209,3 +2707,4 @@ const [state, setState] = useState<AppState>({
 };
 
 export default Index;
+
