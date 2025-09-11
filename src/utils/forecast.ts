@@ -1,4 +1,4 @@
-import { ISODate } from './dateUtils';
+import { ISODate, nextBusinessDay } from './dateUtils';
 
 export interface Bill {
   id?: string;
@@ -43,10 +43,11 @@ export function calculateForecast(input: ForecastInput): ForecastResult {
     });
   });
   
-  // Add bills
+  // Add bills (roll forward to next business day)
   bills.forEach(bill => {
+    const due = nextBusinessDay(bill.dueDate);
     events.push({
-      date: bill.dueDate,
+      date: due,
       amount: -bill.amount,
       description: bill.name
     });

@@ -1549,7 +1549,7 @@ const [state, setState] = useState<AppState>({
                           {lastSeenFromStore ? <> • Last seen: {lastSeenFromStore}</> : null}
                           {pay && (
                             <>
-                              {' '}• Next pay: {(() => {
+                              {' '}• Next Deposit date: {(() => {
                                 const dates = calculatePayDates(pay.frequency, pay.anchorDate, 3);
                                 const today = new Date().toISOString().split('T')[0];
                                 const next = dates.find(d => d >= today) ?? dates[dates.length - 1];

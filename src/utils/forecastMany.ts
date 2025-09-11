@@ -1,4 +1,4 @@
-import { ISODate } from './dateUtils';
+import { ISODate, nextBusinessDay } from './dateUtils';
 import { Bill, ForecastResult } from './forecast';
 
 export interface ForecastManyInput {
@@ -59,13 +59,14 @@ export function calculateForecastFromMany(input: ForecastManyInput): ForecastRes
   // They reduce each partner's available monthly budget, and are accounted for in the optimizer,
   // not as debits on the joint timeline.
   
-  // Add bills (split by fairness ratio)
+  // Add bills (split by fairness ratio) and roll to next business day
   bills.forEach(bill => {
     const amountA = bill.amount * fairnessRatioA;
     const amountB = bill.amount * (1 - fairnessRatioA);
+    const due = nextBusinessDay(bill.dueDate);
     
     events.push({
-      date: bill.dueDate,
+      date: due,
       amount: -(amountA + amountB), // Total bill amount
       description: `${bill.name} (A: €${amountA.toFixed(2)}, B: €${amountB.toFixed(2)})`
     });
@@ -104,3 +105,4 @@ export function calculateForecastFromMany(input: ForecastManyInput): ForecastRes
     timeline
   };
 }
+

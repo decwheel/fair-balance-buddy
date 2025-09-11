@@ -30,12 +30,40 @@ export function calculatePayDates(
   count: number
 ): string[] {
   const out: string[] = [];
+
+  // Helpers for monthly deposits anchored to the 1st business day
+  const firstBizOfMonth = (y: number, m1: number): string => {
+    const raw = `${y}-${String(m1).padStart(2, '0')}-01`;
+    return nextBusinessDay(raw);
+  };
+
+  if (frequency === 'MONTHLY') {
+    // Monthly deposits occur on the 1st business day of each month.
+    // If the anchor is already the 1st business day of its month, use it as the first deposit.
+    // Otherwise, start from the next month’s 1st business day.
+    const [ay, am] = anchorISO.split('-').map(Number);
+    const anchorMonthFirstBiz = firstBizOfMonth(ay, am);
+    let startOffset = (anchorISO === anchorMonthFirstBiz) ? 0 : 1;
+    // If today is the first business day and equals anchor, defer to following month
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (anchorISO === todayStr && anchorISO === anchorMonthFirstBiz) {
+      startOffset = 1;
+    }
+
+    for (let i = 0; i < count; i++) {
+      const d = new Date(Date.UTC(ay, (am - 1) + startOffset + i, 1));
+      const y = d.getUTCFullYear();
+      const m = d.getUTCMonth() + 1; // 1..12
+      out.push(firstBizOfMonth(y, m));
+    }
+    return out;
+  }
+
+  // Other frequencies: step forward from the anchor (unchanged)
   let cur = anchorISO;
   for (let i = 0; i < count; i++) {
     out.push(cur);
-    if (frequency === 'MONTHLY') {
-      cur = addMonthsClampISO(cur, 1);
-    } else if (frequency === 'FOUR_WEEKLY') {
+    if (frequency === 'FOUR_WEEKLY') {
       cur = addDaysISO(cur, 28);
     } else {
       const step = frequency === 'WEEKLY' ? 7 : 14; // FORTNIGHTLY/BIWEEKLY
