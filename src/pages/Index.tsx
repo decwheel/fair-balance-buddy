@@ -1220,7 +1220,13 @@ const [state, setState] = useState<AppState>({
     const earliest = dates[0];
     const startDate = (() => {
       const payA = state.userA.paySchedule;
-      if (!payA) return new Date().toISOString().slice(0,10);
+      if (!payA) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
       const pays = calculatePayDates(payA.frequency, payA.anchorDate, 18);
       const before = pays.filter(p => p <= earliest);
       return before.length ? before[before.length - 1] : pays[0];
@@ -1987,8 +1993,14 @@ const [state, setState] = useState<AppState>({
 
               // Prepare helpers for balances and rendering
               const timeline = [...state.forecastResult!.timeline].sort((a, b) => a.date.localeCompare(b.date));
+              const toISODateLocal = (d: Date) => {
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                return `${y}-${m}-${day}`;
+              };
               const getBalanceForDate = (d: Date) => {
-                const iso = d.toISOString().slice(0, 10);
+                const iso = toISODateLocal(d);
                 let bal = timeline[0]?.balance ?? 0;
                 for (const t of timeline) {
                   if (t.date <= iso) bal = t.balance; else break;
@@ -1998,7 +2010,7 @@ const [state, setState] = useState<AppState>({
 
               const CustomDayContent = (props: any) => {
                 const date: Date = props.date;
-                const iso = date.toISOString().slice(0, 10);
+                const iso = toISODateLocal(date);
                 const hasEvents = eventsByDate.has(iso);
                 const bal = getBalanceForDate(date);
                 const isNeg = bal < 0;
@@ -2016,7 +2028,7 @@ const [state, setState] = useState<AppState>({
               const allEventDates = Array.from(eventsByDate.keys()).sort();
               const selectedDate = state.selectedDate ?? allEventDates[0] ?? null;
               const handleSelect = (d?: Date) => {
-                const iso = d ? new Date(d).toISOString().slice(0,10) : null;
+                const iso = d ? toISODateLocal(d) : null;
                 setState(prev => ({ ...prev, selectedDate: iso }));
               };
               const selectedEvents = selectedDate ? (eventsByDate.get(selectedDate) || []) : [];
@@ -2033,13 +2045,13 @@ const [state, setState] = useState<AppState>({
                   <CardContent className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div className="rounded-md border p-4">
                       <DayPicker
-                        mode="single"
-                        showOutsideDays
-                        defaultMonth={selectedDate ? new Date(selectedDate) : (allEventDates[0] ? new Date(allEventDates[0]) : new Date())}
-                        selected={selectedDate ? new Date(selectedDate) : undefined}
-                        onSelect={handleSelect as any}
-                        components={{ DayContent: CustomDayContent }}
-                      />
+                         mode="single"
+                         showOutsideDays
+                        defaultMonth={selectedDate ? new Date(selectedDate + 'T00:00:00') : (allEventDates[0] ? new Date(allEventDates[0] + 'T00:00:00') : new Date())}
+                        selected={selectedDate ? new Date(selectedDate + 'T00:00:00') : undefined}
+                         onSelect={handleSelect as any}
+                         components={{ DayContent: CustomDayContent }}
+                       />
                     </div>
                     <div className="rounded-md border p-4 space-y-4">
                       <Tabs defaultValue="transactions" className="w-full">
@@ -2050,7 +2062,7 @@ const [state, setState] = useState<AppState>({
                         <TabsContent value="transactions" className="space-y-4">
                           <div>
                             <div className="flex items-center justify-between mb-2">
-                              <p className="text-sm font-medium">Transactions</p>
+                              <p className="text-sm font-medium">{selectedDate ? `Transactions on ${selectedDate}` : 'Transactions'}</p>
                               <Button size="sm" onClick={() => setBillDialogOpen(true)} disabled={!selectedDate}>Add New Bill</Button>
                             </div>
                             {selectedDate ? (
@@ -2091,7 +2103,12 @@ const [state, setState] = useState<AppState>({
                         <TabsContent value="savings">
                           {(() => {
                             const startISO = (usePlanStore.getState().result as any)?.startISO || timeline[0]?.date || selectedDate;
-                            const toISO = (d: Date) => d.toISOString().slice(0,10);
+                            const toISO = (d: Date) => {
+                              const y = d.getFullYear();
+                              const m = String(d.getMonth() + 1).padStart(2, '0');
+                              const day = String(d.getDate()).padStart(2, '0');
+                              return `${y}-${m}-${day}`;
+                            };
                             const parseISO = (s: string) => new Date(s + 'T00:00:00');
                             const monthsBetween = (aISO: string, bISO: string) => {
                               const a = parseISO(aISO); const b = parseISO(bISO);
