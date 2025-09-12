@@ -91,7 +91,7 @@ export function generateBillSuggestions(
   function scoreMonthlyTotal(billsOverride: FB[]): { monthlyTotal: number; minBalance: number } {
     if (!hasB) {
       const dep = findDepositSingleAcc(startISO, payA as any, billsOverride, inputs.minBalance);
-      const sim = runSingleAcc(dep, startISO, payA as any, billsOverride as any, { months: 12, buffer: 0 });
+      const sim = runSingleAcc(dep, startISO, payA as any, billsOverride as any, { months: 12, buffer: 0, initialBalance: inputs.initialBalance ?? 0 });
       const monthlyA = dep * cyclesPerMonth(payA.frequency);
       return { monthlyTotal: monthlyA, minBalance: sim.minBalance };
     }
@@ -103,7 +103,7 @@ export function generateBillSuggestions(
       payA as any,
       payB as any,
       billsOverride as any,
-      { months: 12, fairnessRatioA: fairness, weeklyAllowanceA: inputs.weeklyAllowanceA, weeklyAllowanceB: inputs.weeklyAllowanceB }
+      { months: 12, fairnessRatioA: fairness, weeklyAllowanceA: inputs.weeklyAllowanceA, weeklyAllowanceB: inputs.weeklyAllowanceB, initialBalance: inputs.initialBalance ?? 0 }
     );
     const monthlyA = depositA * cyclesPerMonth(payA.frequency);
     const monthlyB = depositB * cyclesPerMonth((payB as any).frequency);
@@ -122,14 +122,12 @@ export function generateBillSuggestions(
 
   // Gating: only propose suggestions when materially above ideal or clearly overfunded
   function monthlyCost(bills: FB[]): number {
+    // Average over the forecast horizon (12 months), ignoring any items outside it
     if (!bills.length) return 0;
-    const dues = bills.map(b => b.dueDate).filter(Boolean).sort();
-    const first = dues[0] || startISO;
-    const last = dues[dues.length - 1] || startISO;
-    const total = bills.reduce((s, b) => s + (Number(b.amount) || 0), 0);
-    const a = new Date(first); const z = new Date(last);
-    const months = (z.getUTCFullYear() - a.getUTCFullYear()) * 12 + (z.getUTCMonth() - a.getUTCMonth()) + 1;
-    return months > 0 ? total / months : total;
+    const horizonEnd = formatISO(addDays(parseISO(startISO), 365), { representation: 'date' });
+    const inRange = bills.filter(b => b.dueDate >= startISO && b.dueDate <= horizonEnd);
+    const total = inRange.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+    return total / 12;
   }
   const idealMonthly = monthlyCost(allBills);
   const currentMonthly = (() => {
@@ -140,6 +138,11 @@ export function generateBillSuggestions(
   const factor = idealMonthly > 0 ? currentMonthly / idealMonthly : 1;
   const trigger = hasB ? 1.03 : 1.05;
   const overfunded = (baselineSim.endBalance > Math.max(500, 0.75 * idealMonthly)) || (baselineSim.endBalance > currentMonthly);
+  const negative = baselineSim.minBalance < 0;
+  const targetEnd = (inputs.initialBalance ?? 0);
+  const endHigh = baselineSim.endBalance > (targetEnd + Math.max(25, idealMonthly * 0.02));
+  const nearOverfund = factor > (hasB ? 1.01 : 1.02);
+  const absOver = (currentMonthly - idealMonthly) >= 30; // €30+/mo gap triggers exploration
   console.log('[opt] gating', {
     mode: hasB ? 'joint' : 'single',
     idealMonthly: Math.round(idealMonthly),
@@ -147,9 +150,11 @@ export function generateBillSuggestions(
     factor: +factor.toFixed(4),
     trigger,
     endBalance: Math.round(baselineSim.endBalance),
-    overfunded
+    overfunded,
+    negative
   });
-  if (!(factor > trigger) && !overfunded) {
+  // Consider suggestions if negative, clearly overfunded, slightly overfunded, or end balance materially above opening
+  if (!negative && !overfunded && !nearOverfund && !endHigh && !absOver) {
     console.log('[opt] no suggestions: already close to ideal and not overfunded');
     return [];
   }
@@ -219,7 +224,23 @@ export function generateBillSuggestions(
     return new Date(Date.UTC(y, m, clamped)).toISOString().slice(0, 10);
   };
 
-  const maxMoves = hasB ? 12 : 8;
+  const weekdayShiftTargets = (iso: string): string[] => {
+    const d = new Date(iso + 'T00:00:00');
+    const outs = new Set<string>();
+    const makeISO = (dd: Date) => new Date(Date.UTC(dd.getUTCFullYear(), dd.getUTCMonth(), dd.getUTCDate())).toISOString().slice(0,10);
+    const isWeekend = (dd: Date) => dd.getUTCDay() === 0 || dd.getUTCDay() === 6;
+    for (const delta of [-5,-4,-3,-2,-1,1,2,3,4,5]) {
+      const t = new Date(d);
+      t.setUTCDate(t.getUTCDate() + delta);
+      // Clamp to Mon–Fri by rolling forward to Monday if landing on weekend
+      while (isWeekend(t)) t.setUTCDate(t.getUTCDate() + 1);
+      outs.add(makeISO(t));
+    }
+    return Array.from(outs);
+  };
+
+  const maxMoves = negative ? 2 : (hasB ? 12 : 8);
+  let triedDOM = 0, feasibleDOM = 0, triedShift = 0, feasibleShift = 0;
   const minGain = 0.00005; // 0.005% — be more eager so users see ideas
   let bestMonthly = base.monthlyTotal;
   const chosen: { billId: string; fromISO: string; toISO: string; deltaMonthly: number }[] = [];
@@ -240,14 +261,49 @@ export function generateBillSuggestions(
         const domSet = new Set<number>(hasB ? ANCHORS : [5, 12, 19, 26]);
         const pd = nearestPayDom(occ.dueDate);
         if (pd) domSet.add(pd);
+        // Candidate 1: same-month DOM anchors (and nearest payday DOM)
         for (const dom of domSet) {
+          // Same-month candidate
           const target = toMonthISO(occ.dueDate, dom);
+          if (target !== occ.dueDate) {
+            triedDOM++;
+            const override = allBills.map(b => (b === occ ? { ...b, dueDate: target } : b));
+            const score = scoreMonthlyTotal(override);
+            if (score.minBalance >= 0) {
+              feasibleDOM++;
+              if (!stepBest.newMonthly || score.monthlyTotal < stepBest.newMonthly) {
+                stepBest = { billId: occ.id || `${occ.name}-${occ.dueDate}`, fromISO: occ.dueDate, toISO: target, newMonthly: score.monthlyTotal, delta: bestMonthly - score.monthlyTotal };
+              }
+            }
+          }
+          // If occurrence falls within 14 days before trough, also try pushing to next month same DOM
+          const d = parseISO(occ.dueDate);
+          const t = parseISO(troughISO);
+          const daysToTrough = Math.ceil((t.getTime() - d.getTime()) / (24*60*60*1000));
+          if (daysToTrough >= 0 && daysToTrough <= 28) {
+            triedDOM++;
+            const nextMonthISO = formatISO(addDays(parseISO(toMonthISO(occ.dueDate, dom)), 30), { representation: 'date' });
+            const override2 = allBills.map(b => (b === occ ? { ...b, dueDate: nextMonthISO } : b));
+            const score2 = scoreMonthlyTotal(override2);
+            if (score2.minBalance >= 0) {
+              feasibleDOM++;
+              if (!stepBest.newMonthly || score2.monthlyTotal < stepBest.newMonthly) {
+                stepBest = { billId: occ.id || `${occ.name}-${occ.dueDate}`, fromISO: occ.dueDate, toISO: nextMonthISO, newMonthly: score2.monthlyTotal, delta: bestMonthly - score2.monthlyTotal };
+              }
+            }
+          }
+        }
+        // Candidate 2: weekday shifts (Mon–Fri) within ±3 days for weekly/fortnightly/monthly alike
+        for (const target of weekdayShiftTargets(occ.dueDate)) {
           if (target === occ.dueDate) continue;
+          triedShift++;
           const override = allBills.map(b => (b === occ ? { ...b, dueDate: target } : b));
           const score = scoreMonthlyTotal(override);
-          if (score.minBalance < 0) continue;
-          if (!stepBest.newMonthly || score.monthlyTotal < stepBest.newMonthly) {
-            stepBest = { billId: occ.id || `${occ.name}-${occ.dueDate}`, fromISO: occ.dueDate, toISO: target, newMonthly: score.monthlyTotal, delta: bestMonthly - score.monthlyTotal };
+          if (score.minBalance >= 0) {
+            feasibleShift++;
+            if (!stepBest.newMonthly || score.monthlyTotal < stepBest.newMonthly) {
+              stepBest = { billId: occ.id || `${occ.name}-${occ.dueDate}`, fromISO: occ.dueDate, toISO: target, newMonthly: score.monthlyTotal, delta: bestMonthly - score.monthlyTotal };
+            }
           }
         }
         break; // one occurrence per offender per step
@@ -298,6 +354,12 @@ export function generateBillSuggestions(
     savedPerMonth: Math.round(totalMonthlySaved),
     beforeMonthly: Math.round(baseMonthly),
     afterMonthly: Math.round(Math.max(0, baseMonthly - totalMonthlySaved))
+  });
+  console.log('[opt] search stats', {
+    triedDOM,
+    feasibleDOM,
+    triedShift,
+    feasibleShift
   });
   return primary;
 }

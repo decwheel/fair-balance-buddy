@@ -14,14 +14,20 @@ import { optimizeDeposits } from "../services/fairSplitEngine";
 import { generateBillSuggestions } from "../services/optimizationEngine";
 
 // Minimal non-blocking skeleton.
-function simulate(inputs: PlanInputs): SimResult {
+function simulate(inputs: PlanInputs, opts?: { includeSuggestions?: boolean }): SimResult {
+  const includeSuggestions = !!(opts?.includeSuggestions);
   const allBillsRaw = [...(inputs.bills ?? []), ...(inputs.elecPredicted ?? [])];
-  const allBills = allBillsRaw.filter(b => !b.dueDateISO || b.dueDateISO >= inputs.startISO).map(b => ({
-    ...b,
-    issueDate: b.dueDateISO || b.dueDate || inputs.startISO,
-    dueDate: b.dueDateISO || b.dueDate || inputs.startISO,
-    source: b.source === 'electricity' ? 'predicted-electricity' as const : b.source
-  }));
+  const allBills = allBillsRaw
+    .filter(b => {
+      const due = (b as any).dueDateISO || (b as any).dueDate || (b as any).issueDate;
+      return !due || due >= inputs.startISO;
+    })
+    .map(b => ({
+      ...b,
+      issueDate: (b as any).issueDate || (b as any).dueDateISO || (b as any).dueDate || inputs.startISO,
+      dueDate: (b as any).dueDateISO || (b as any).dueDate || (b as any).issueDate || inputs.startISO,
+      source: (b as any).source === 'electricity' ? 'predicted-electricity' as const : (b as any).source
+    }));
   const payScheduleA = { 
     frequency: inputs.a.freq.toUpperCase().replace('FORTNIGHTLY', 'BIWEEKLY') as 'WEEKLY' | 'BIWEEKLY' | 'FOUR_WEEKLY' | 'MONTHLY', 
     anchorDate: inputs.a.firstPayISO 
@@ -36,6 +42,11 @@ function simulate(inputs: PlanInputs): SimResult {
     // Use fair-split–style optimizer to choose start date and per-pay deposits
     const pick = optimizeDeposits(inputs);
 
+    // Compute fairness ratio based on detected net monthly incomes (match optimizer)
+    const monthlyA = inputs.a.netMonthly;
+    const monthlyB = inputs.b?.netMonthly || 0;
+    const fairnessA = (monthlyA + monthlyB) > 0 ? (monthlyA / (monthlyA + monthlyB)) : 0.5;
+
     const result = runJoint(
       pick.depositA,
       pick.depositB || 0,
@@ -43,20 +54,22 @@ function simulate(inputs: PlanInputs): SimResult {
       payScheduleA,
       payScheduleB,
       allBills,
-      { months: 12, fairnessRatioA: 0.5 }
+      { months: 12, fairnessRatioA: fairnessA, initialBalance: inputs.initialBalance ?? 0 }
     );
 
     let billSuggestions: SimResult['billSuggestions'] = [];
-    try {
-      billSuggestions = generateBillSuggestions(
-        inputs,
-        { monthlyA: pick.depositA, monthlyB: pick.depositB || 0 },
-        result.minBalance
-      );
-      // Debug: surface count to main console via postMessage
-      try { console.log('[simWorker] suggestions (joint):', billSuggestions?.length ?? 0); } catch {}
-    } catch (e) {
-      // suggestions optional
+    if (includeSuggestions) {
+      try {
+        billSuggestions = generateBillSuggestions(
+          inputs,
+          { monthlyA: pick.depositA, monthlyB: pick.depositB || 0 },
+          result.minBalance
+        );
+        // Debug: surface count to main console via postMessage
+        try { console.log('[simWorker] suggestions (joint):', billSuggestions?.length ?? 0); } catch {}
+      } catch (e) {
+        // suggestions optional
+      }
     }
 
     return {
@@ -70,18 +83,20 @@ function simulate(inputs: PlanInputs): SimResult {
     };
   } else {
     const pick = optimizeDeposits(inputs);
-    const result = runSingle(pick.depositA, pick.startISO, payScheduleA, allBills, { months: 12, buffer: 0 });
+    const result = runSingle(pick.depositA, pick.startISO, payScheduleA, allBills, { months: 12, buffer: 0, initialBalance: inputs.initialBalance ?? 0 });
 
     let billSuggestions: SimResult['billSuggestions'] = [];
-    try {
-      billSuggestions = generateBillSuggestions(
-        inputs,
-        { monthlyA: pick.depositA },
-        result.minBalance
-      );
-      try { console.log('[simWorker] suggestions (single):', billSuggestions?.length ?? 0); } catch {}
-    } catch (e) {
-      // ignore
+    if (includeSuggestions) {
+      try {
+        billSuggestions = generateBillSuggestions(
+          inputs,
+          { monthlyA: pick.depositA },
+          result.minBalance
+        );
+        try { console.log('[simWorker] suggestions (single):', billSuggestions?.length ?? 0); } catch {}
+      } catch (e) {
+        // ignore
+      }
     }
 
     return {
@@ -109,4 +124,23 @@ function ping(): string {
   return "ok";
 }
 
-Comlink.expose({ simulate, analyzeTransactions, ping });
+// Run gating/suggestions in the worker using caller-provided per-pay deposits (so logs
+// reflect trimmed deposits seen in the UI). Returns number of suggestions (optional).
+function explainGating(
+  inputs: PlanInputs,
+  deposits: { a: number; b?: number },
+  currentMin = 0
+): number {
+  try {
+    const res = generateBillSuggestions(
+      inputs,
+      { monthlyA: deposits.a, monthlyB: deposits.b },
+      currentMin
+    );
+    return Array.isArray(res) ? res.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
+Comlink.expose({ simulate, analyzeTransactions, explainGating, ping });

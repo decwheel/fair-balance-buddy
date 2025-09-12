@@ -46,7 +46,9 @@ export function expandRecurringItem(r: RecurringItem, startISO: string, months: 
   const out: Bill[] = [];
   let cursor: string;
 
-  const push = (iso: string) =>
+  const push = (iso: string) => {
+    const IMMUTABLE = /(CRECHE|FAIRYHOUSE\s+CRECHE|HOGAN\s+DIRECT|OP\/NEW\s+IRELAN|NEPOSCHGGBP|\bEIR\b|\bSKY\b|DISNEY|SPOTIFY|APPLE\.COM|HUMMGROUP)/i;
+    const isImmovable = IMMUTABLE.test(r.description || '');
     out.push({
       id: `${idPrefix}-${iso}`,
       name: r.description,
@@ -55,8 +57,9 @@ export function expandRecurringItem(r: RecurringItem, startISO: string, months: 
       dueDate: iso,
       account: "JOINT" as const,
       source: "imported" as const,
-      movable: false,
+      movable: !isImmovable,
     });
+  };
 
   if (r.freq === "monthly" && typeof r.dueDay === "number") {
     cursor = nextMonthlyOnOrAfter(startISO, r.dueDay);
@@ -97,4 +100,5 @@ export function expandRecurring(recurring: RecurringItem[], startISO: string, mo
   recurring.forEach((r, i) => out.push(...expandRecurringItem(r, startISO, months, `${prefix}${i}`)));
   return out;
 }
+
 

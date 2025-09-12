@@ -51,6 +51,7 @@ export type PlanInputs = {
   weeklyAllowanceA?: number;
   weeklyAllowanceB?: number;
   fairnessRatio?: { a: number; b: number }; // income-based
+  initialBalance?: number;   // opening joint balance; used in sim + trim target
 };
 
 export type TimelineEntry = {

@@ -38,12 +38,42 @@ function firstOnOrAfter(dates: string[], refISO: string): string | null {
 }
 
 function startCandidates(anchorISO: string, freq: PayFrequency, fromISO: string, months = 18): string[] {
-  const ds = payDates(anchorISO, freq, months);
-  const first = firstOnOrAfter(ds, fromISO) || ds[0];
-  // second = next payday roughly a month later
-  const roughlyNextMonth = formatISO(addMonths(parseISO(first), 1), { representation: "date" });
-  const second = firstOnOrAfter(ds, roughlyNextMonth);
-  return [first, second].filter(Boolean) as string[];
+  const dsAll = payDates(anchorISO, freq, months);
+  const ds = dsAll.filter(d => d >= fromISO);
+  if (!ds.length) return dsAll.slice(0, 2);
+
+  switch (freq) {
+    case 'weekly':
+      {
+        const out = ds.slice(0, 4); // next 4 Fridays-like
+        console.log('[opt] weekly start candidates', out);
+        return out;
+      }
+    case 'fortnightly':
+      {
+        const out = ds.slice(0, 3); // next 3 fortnights (gives 25th, 9th, 23rd style)
+        console.log('[opt] fortnightly start candidates', out);
+        return out;
+      }
+    case 'four_weekly':
+      {
+        const out = ds.slice(0, 2);
+        console.log('[opt] four_weekly start candidates', out);
+        return out;
+      }
+    case 'monthly':
+    default: {
+      // Include the very next monthly payday (e.g., 2025-10-01) and the following one
+      const first = ds[0];
+      const next = ds[1] || firstOnOrAfter(dsAll, formatISO(addMonths(parseISO(first), 1), { representation: 'date' })) || first;
+      const out = Array.from(new Set([first, next])).filter(Boolean) as string[];
+      // Optionally include one more month ahead to offer alternatives (e.g., bank holiday shifts)
+      const afterNext = firstOnOrAfter(dsAll, formatISO(addMonths(parseISO(next), 1), { representation: 'date' }));
+      if (afterNext) out.push(afterNext);
+      console.log('[opt] monthly start candidates', out);
+      return out;
+    }
+  }
 }
 
 function sumBillsMonthly(bills: { amount: number; issueDate?: string; dueDate?: string; dueDateISO?: string }[]): number {
@@ -179,26 +209,51 @@ export function optimizeDeposits(inputs: PlanInputs): StartPick {
   }
 
   // Candidate starts: earliest next A and earliest next B
-  const candA = startCandidates(scheduleA.anchorDate, freqA, inputs.startISO).slice(0, 2);
-  const candB = startCandidates(scheduleB.anchorDate, freqB, inputs.startISO).slice(0, 2);
-  const merged = [...candA.map(d => ({ who: "A" as const, d })), ...candB.map(d => ({ who: "B" as const, d }))]
-    .sort((x, y) => parseISO(x.d).getTime() - parseISO(y.d).getTime());
-  const tryStarts = [] as string[];
-  const seen = { A: false, B: false } as Record<"A" | "B", boolean>;
-  for (const ev of merged) { tryStarts.push(ev.d); seen[ev.who] = true; if (seen.A && seen.B) break; }
+  const candA = startCandidates(scheduleA.anchorDate, freqA, inputs.startISO);
+  const candB = startCandidates(scheduleB.anchorDate, freqB, inputs.startISO);
+  const tryStarts = Array.from(new Set([...candA, ...candB]))
+    .sort((a, b) => parseISO(a).getTime() - parseISO(b).getTime())
+    .slice(0, 6);
+  console.log('[opt] tryStarts (merged)', tryStarts);
 
-  let best: StartPick | null = null;
+  let best: (StartPick & { _monthlyTotal: number; _endDist: number }) | null = null;
   for (const s of tryStarts) {
     const pure = feasibleAB(idealMonthlyA, idealMonthlyB, s);
     const scaled = pure.ok ? scaleDown(s, idealMonthlyA, idealMonthlyB) : scaleUp(s, idealMonthlyA, idealMonthlyB);
     const pick = { startISO: s, depositA: +scaled.perPayA.toFixed(2), depositB: +scaled.perPayB.toFixed(2) };
-    if (!best) best = pick;
+    // Evaluate end balance for tie-breaker vs opening balance
+    const sim = runJoint(pick.depositA, pick.depositB || 0, s, scheduleA, scheduleB, bills, { months, fairnessRatioA: fairnessA });
+    const monthlyTotal = pick.depositA * cyclesPerMonth(scheduleA.frequency) + (pick.depositB || 0) * cyclesPerMonth(scheduleB.frequency);
+    const endDist = Math.abs((sim.endBalance || 0) - (inputs.initialBalance ?? 0));
+    const cur = { ...pick, _monthlyTotal: monthlyTotal, _endDist: endDist };
+    if (!best) best = cur;
     else {
-      const curTotalMonthly = pick.depositA * cyclesPerMonth(scheduleA.frequency) + (pick.depositB || 0) * cyclesPerMonth(scheduleB.frequency);
-      const bestTotalMonthly = best.depositA * cyclesPerMonth(scheduleA.frequency) + (best.depositB || 0) * cyclesPerMonth(scheduleB.frequency);
-      if (curTotalMonthly < bestTotalMonthly) best = pick;
+      const betterMonthly = cur._monthlyTotal + 1e-6 < best._monthlyTotal; // prefer lower monthly
+      const nearMonthly = Math.abs(cur._monthlyTotal - best._monthlyTotal) <= 15 || (best._monthlyTotal > 0 && Math.abs(cur._monthlyTotal - best._monthlyTotal) / best._monthlyTotal <= 0.01);
+      if (betterMonthly) best = cur;
+      else if (nearMonthly && cur._endDist < best._endDist) best = cur; // tie-break toward end closer to opening
     }
   }
 
-  return best || { startISO: inputs.startISO, depositA: +(idealMonthlyA / cyclesPerMonth(scheduleA.frequency)).toFixed(2), depositB: +(idealMonthlyB / cyclesPerMonth(scheduleB.frequency)).toFixed(2) };
+  // Final guarantee: ensure minBalance >= minBalance by small top-up if rounding shaved too much
+  if (best) {
+    const fairnessA = totalIncome > 0 ? monthlyA / totalIncome : 0.5;
+    const cyclesA = cyclesPerMonth(scheduleA.frequency);
+    const cyclesB = cyclesPerMonth(scheduleB.frequency);
+    let depA = Math.max(0, Math.floor(best.depositA)); // integers for stability
+    let depB = Math.max(0, Math.floor(best.depositB || 0));
+    let check = runJoint(depA, depB, best.startISO, scheduleA, scheduleB, bills, { months, fairnessRatioA: fairnessA });
+    let guards = 0;
+    while (check.minBalance < minBalance && guards++ < 12) {
+      const shortPerMonth = Math.max(1, Math.ceil((minBalance - check.minBalance) / 12));
+      const bumpA = Math.max(1, Math.ceil((shortPerMonth * fairnessA) / cyclesA));
+      const bumpB = Math.max(0, Math.ceil((shortPerMonth * (1 - fairnessA)) / cyclesB));
+      depA += bumpA; depB += bumpB;
+      check = runJoint(depA, depB, best.startISO, scheduleA, scheduleB, bills, { months, fairnessRatioA: fairnessA });
+    }
+    best = { startISO: best.startISO, depositA: depA, depositB: depB, _monthlyTotal: best._monthlyTotal, _endDist: best._endDist } as any;
+  }
+
+  console.log('[opt] chosen start & deposits', best);
+  return best ? { startISO: best.startISO, depositA: best.depositA, depositB: best.depositB } : { startISO: inputs.startISO, depositA: +(idealMonthlyA / cyclesPerMonth(scheduleA.frequency)).toFixed(2), depositB: +(idealMonthlyB / cyclesPerMonth(scheduleB.frequency)).toFixed(2) };
 }

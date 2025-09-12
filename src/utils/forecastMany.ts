@@ -20,9 +20,7 @@ export interface ForecastManyInput {
 // Mock implementation of your existing calculateForecastFromMany function
 // Replace this with import from your actual utils/forecast-many.js
 export function calculateForecastFromMany(input: ForecastManyInput): ForecastResult {
-  const { 
-    startDate, 
-    initialBalance, 
+  const { startDate, months, initialBalance, 
     payDatesA, 
     payDatesB, 
     depositA, 
@@ -74,30 +72,33 @@ export function calculateForecastFromMany(input: ForecastManyInput): ForecastRes
   
   // Sort events by date
   events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  
-  // Calculate running balance (only from startDate onward)
+
+  // Calculate running balance; minBalance window begins at first deposit date
   const timeline: Array<{ date: ISODate; balance: number; event?: string }> = [];
   let currentBalance = initialBalance;
-  let minBalance = currentBalance;
-  
-  // Add starting point
+
+  // Add starting point for display
   timeline.push({ date: startDate, balance: currentBalance });
-  
-  const startTs = new Date(startDate).getTime();
-  const futureEvents = events.filter(e => new Date(e.date).getTime() >= startTs);
-  
+
+  const endDate = (() => { const d = new Date(startDate + 'T00:00:00'); d.setMonth(d.getMonth() + (months || 12)); return d.toISOString().slice(0,10); })();
+  const startTs = new Date(startDate + 'T00:00:00').getTime();
+  const endTs = new Date(endDate + 'T00:00:00').getTime();
+  const futureEvents = events.filter(e => { const ts = new Date(e.date + 'T00:00:00').getTime(); return ts >= startTs && ts <= endTs; });
+
+  // First deposit date across A and B
+  const firstDepA = payDatesA.find(d => new Date(d + 'T00:00:00').getTime() >= startTs);
+  const firstDepB = payDatesB.find(d => new Date(d + 'T00:00:00').getTime() >= startTs);
+  const firstDeposit = [firstDepA, firstDepB].filter(Boolean).sort()[0] || startDate;
+  const firstDepositTs = new Date(firstDeposit + 'T00:00:00').getTime();
+
+  let minBalance = Number.POSITIVE_INFINITY;
   futureEvents.forEach(event => {
+    const ts = new Date(event.date + 'T00:00:00').getTime();
     currentBalance += event.amount;
-    timeline.push({
-      date: event.date,
-      balance: currentBalance,
-      event: event.description
-    });
-    
-    if (currentBalance < minBalance) {
-      minBalance = currentBalance;
-    }
+    timeline.push({ date: event.date, balance: currentBalance, event: event.description });
+    if (ts >= firstDepositTs && currentBalance < minBalance) minBalance = currentBalance;
   });
+  if (!isFinite(minBalance)) minBalance = currentBalance;
   
   return {
     minBalance: minBalance - buffer,
@@ -105,4 +106,8 @@ export function calculateForecastFromMany(input: ForecastManyInput): ForecastRes
     timeline
   };
 }
+
+
+
+
 

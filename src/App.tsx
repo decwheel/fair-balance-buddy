@@ -62,7 +62,7 @@ function App() {
   } = usePlanStore();
   const workerRef = useRef<Worker | null>(null);
   const apiRef = useRef<{
-    simulate: (i: PlanInputs) => Promise<SimResult>;
+    simulate: (i: PlanInputs, opts?: { includeSuggestions?: boolean }) => Promise<SimResult>;
     analyzeTransactions: (tx: Transaction[]) => Promise<{ salaries: any[]; recurring: any[] }>;
     ping: () => Promise<string>;
   } | null>(null);
@@ -82,7 +82,7 @@ function App() {
       toast.error("Worker message error (serialization). See console.");
     });
     const api = Comlink.wrap<{
-      simulate: (i: PlanInputs) => Promise<SimResult>;
+      simulate: (i: PlanInputs, opts?: { includeSuggestions?: boolean }) => Promise<SimResult>;
       analyzeTransactions: (tx: Transaction[]) => Promise<{ salaries: any[]; recurring: any[] }>;
       ping: () => Promise<string>;
     }>(w);
@@ -278,7 +278,7 @@ function App() {
       weeklyAllowanceB: 0,
     };
     const merged = { ...minimal, ...inputs } as PlanInputs;
-    const r = await apiRef.current.simulate(merged);
+    const r = await apiRef.current.simulate(merged, { includeSuggestions: false });
     setResult(r);
   }
 

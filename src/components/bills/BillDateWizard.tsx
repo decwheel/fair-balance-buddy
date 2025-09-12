@@ -7,6 +7,7 @@ import { formatCurrency } from '@/utils/dateUtils';
 type Suggestion = {
   billId: string;
   name?: string;
+  amount?: number;
   currentDate: string;      // ISO yyyy-mm-dd
   suggestedDate: string;    // ISO yyyy-mm-dd
   // Optional legacy fields; ignored by this UI
@@ -101,6 +102,7 @@ export function BillDateWizard({
                 <tr className="bg-muted/40 text-left">
                   <th className="p-2">Apply</th>
                   <th className="p-2">Bill</th>
+                  <th className="p-2">Amount</th>
                   <th className="p-2">Current</th>
                   <th className="p-2">Suggested</th>
                 </tr>
@@ -115,6 +117,7 @@ export function BillDateWizard({
                       />
                     </td>
                     <td className="p-2 whitespace-nowrap max-w-[10rem] truncate" title={s.name || s.billId}>{s.name || s.billId}</td>
+                    <td className="p-2">{typeof s.amount === 'number' ? formatCurrency(s.amount) : '—'}</td>
                     <td className="p-2">{s.currentDate}</td>
                     <td className="p-2 font-medium">{s.suggestedDate}</td>
                   </tr>
@@ -131,4 +134,3 @@ export function BillDateWizard({
     </Dialog>
   );
 }
-

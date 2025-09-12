@@ -43,6 +43,18 @@ import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs 
 import { useToast } from '@/components/ui/use-toast';
 import { expandRecurring } from '../lib/expandRecurring';
 
+// Hoisted helper for salary candidate -> monthly euros
+function toMonthlySalary(s?: SalaryCandidate): number | undefined {
+  if (!s) return undefined as number | undefined;
+  switch (s.freq) {
+    case 'weekly': return (s.amount * 52) / 12;
+    case 'fortnightly': return (s.amount * 26) / 12;
+    case 'four_weekly': return (s.amount * 13) / 12;
+    case 'monthly':
+    default: return s.amount;
+  }
+}
+
 // Identify electricity vendors from bank-recurring
 const ELEC_VENDOR = /BORD G[ÁA]IS|ELECTRIC IRELAND|SSE|ENERGIA|FLOGAS|PINERGY|PREPAYPOWER/i;
 
@@ -399,6 +411,26 @@ const [state, setState] = useState<AppState>({
         startMin
       ).filter(b => !b.dueDate || b.dueDate >= startMin);
 
+      // Debug: monthly totals using detected recurring (normalized) + electricity average over 12 months
+      const toMonthlyNorm = (amt: number, freq: string) => {
+        switch (freq?.toLowerCase()) {
+          case 'weekly': return (amt * 52) / 12;
+          case 'fortnightly': return (amt * 26) / 12;
+          case 'four_weekly': return (amt * 13) / 12;
+          case 'monthly':
+          default: return amt;
+        }
+      };
+      const recurringA = (detected as any)?.recurring ?? [];
+      const recurringB = (detected as any)?.recurringB ?? [];
+      const recurringMonthly = [...recurringA, ...recurringB].reduce((s, r) => s + toMonthlyNorm(Number(r.amount) || 0, r.freq), 0);
+      const horizonEndISO = (() => { const d = new Date(startMin + 'T00:00:00'); d.setMonth(d.getMonth() + 12); return d.toISOString().slice(0,10); })();
+      const elecOnly = mergedBillsRolled.filter(b => (b as any).source === 'predicted-electricity' && b.dueDate >= startMin && b.dueDate <= horizonEndISO);
+      const elecTotal = elecOnly.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+      const electricityMonthly = elecTotal / 12;
+      const idealMonthly = recurringMonthly + electricityMonthly;
+      console.log('[forecast] monthly totals', { idealMonthly: Math.round(idealMonthly), electricityMonthly: Math.round(electricityMonthly) });
+
       // Effective-income fairness (matches Calculate)
       const toMonthlySchedule = (ps?: PaySchedule) => {
         if (!ps || !ps.averageAmount) return 0;
@@ -632,27 +664,22 @@ const [state, setState] = useState<AppState>({
       const categorized = categorizeBankTransactions(transactions);
       const pay = extractPayScheduleFromWages(categorized.wages);
 
-      let nextState!: AppState;
-      setState(prev => {
-        nextState =
-          partner === 'A'
-            ? { ...prev, userA: { transactions, paySchedule: pay }, linkedA: true, step: 'bank' }
-            : { ...prev, userB: { transactions, paySchedule: pay } as any, linkedB: true, mode: prev.mode === 'single' ? 'joint' : prev.mode, step: 'bank' };
-        return nextState;
-      });
+      // Update state for the relevant partner
+      setState(prev => (
+        partner === 'A'
+          ? { ...prev, userA: { transactions, paySchedule: pay }, linkedA: true, step: 'bank' }
+          : { ...prev, userB: { transactions, paySchedule: pay } as any, linkedB: true, mode: prev.mode === 'single' ? 'joint' : prev.mode, step: 'bank' }
+      ));
 
-      if (nextState) {
-        const txA = nextState.userA?.transactions ?? [];
-        const txB = nextState.userB?.transactions ?? [];
-        (window as any).__runDetection?.(txA, txB);
-      } else {
-        console.warn('[Index] onTx: nextState undefined after setState; skipping detection');
-      }
+      // Kick off detection using known transactions without relying on setState return value
+      const txA = partner === 'A' ? transactions : (state.userA?.transactions ?? []);
+      const txB = partner === 'B' ? transactions : (state.userB?.transactions ?? []);
+      (window as any).__runDetection?.(txA, txB);
     };
 
     window.addEventListener('gc:transactions' as any, onTx);
     return () => window.removeEventListener('gc:transactions' as any, onTx);
-  }, []);
+  }, [state.userA?.transactions, state.userB?.transactions]);
 
 
   // After user finishes bank auth (live), callback posts a message → pull transactions
@@ -793,8 +820,8 @@ const [state, setState] = useState<AppState>({
       const api = (window as any).__workerAPI;
       if (api) {
         const currentInputs = { ...usePlanStore.getState().inputs, elecPredicted: currentElecBills } as PlanInputs;
-        api.simulate(currentInputs).then(res => {
-        usePlanStore.getState().setResult({ ...usePlanStore.getState().result, ...res });
+        api.simulate(currentInputs, { includeSuggestions: false }).then(res => {
+          usePlanStore.getState().setResult({ ...usePlanStore.getState().result, ...res });
         }).catch(err => console.error('[forecast] worker sim failed:', err));
       }
     }
@@ -856,8 +883,13 @@ const [state, setState] = useState<AppState>({
       // Apply any pending date moves (name + fromISO → toISO)
       const movesToApply = movesOverride && movesOverride.length ? movesOverride : dateMoves;
       if (movesToApply.length) {
-        const moveKey = (m: {name:string;fromISO:string; id?:string}) => `${m.id || m.name}@@${m.fromISO}`;
-        const map = new Map(movesToApply.map(m => [moveKey(m), m.toISO]));
+        const entries: Array<[string, string]> = [];
+        for (const m of movesToApply) {
+          // Support both id@@from and name@@from keys; some suggestions use fallback ids
+          entries.push([`${m.id || m.name}@@${m.fromISO}`, m.toISO]);
+          entries.push([`${m.name}@@${m.fromISO}`, m.toISO]);
+        }
+        const map = new Map(entries);
         let applied = 0;
         mergedBills = mergedBills.map(b => {
           const keyById = b.id ? `${b.id}@@${b.dueDate}` : '';
@@ -890,7 +922,7 @@ const [state, setState] = useState<AppState>({
           mode: 'joint',
         } as any;
         try {
-          workerResult = await api.simulate(planForWorker);
+          workerResult = await api.simulate(planForWorker, { includeSuggestions: false });
           usePlanStore.getState().setResult({ ...usePlanStore.getState().result, ...workerResult });
         } catch (e) {
           console.warn('[forecast] worker simulate failed:', e);
@@ -1057,20 +1089,24 @@ const [state, setState] = useState<AppState>({
         const effA = monthlyA - allowanceMonthlyA - sumA - jointShareA;
         const effB = monthlyB - allowanceMonthlyB - sumB - jointShareB;
 
-        // Final fairness ratio
-        const fairnessRatioA = (effA + effB) > 0 ? effA / (effA + effB) : 0.5;
-        console.log('[forecast] fairnessRatioA=%s effA=%s effB=%s', fairnessRatioA.toFixed(4), effA.toFixed(2), effB.toFixed(2));
+        // Final fairness ratio: use income-based ratio when using worker optimization to match worker's assumptions;
+        // otherwise use effective-income (after allowances & pots) for local search.
+        const fairnessIncomeA = (monthlyA + monthlyB) > 0 ? (monthlyA / (monthlyA + monthlyB)) : 0.5;
+        const fairnessEffA = (effA + effB) > 0 ? (effA / (effA + effB)) : 0.5;
+        const fairnessRatioA = useWorkerOptimization ? fairnessIncomeA : fairnessEffA;
+        console.log('[forecast] fairnessRatioA=%s effA=%s effB=%s incomeA=%s', fairnessRatioA.toFixed(4), effA.toFixed(2), effB.toFixed(2), fairnessIncomeA.toFixed(4));
 
         let depositA: number;
         let depositB: number | undefined;
-        let simResult: { minBalance: number; timeline: any };
+        let simResult: { minBalance: number; endBalance?: number; timeline: any };
         if (useWorkerOptimization) {
           depositA = workerResult.requiredDepositA!;
           depositB = workerResult.requiredDepositB!;
-          // Align start date with worker pick to ensure minBalance consistency
           const startFromWorker = workerResult.startISO || startDate;
-          const psAAligned: PaySchedule = { ...payScheduleA, anchorDate: startFromWorker };
-          const psBAligned: PaySchedule = { ...payScheduleB, anchorDate: startFromWorker };
+          // Use the same anchors the worker used (avoid misaligning pay cycles)
+          const anchors = usePlanStore.getState().inputs;
+          const psAAligned: PaySchedule = { ...payScheduleA, anchorDate: (anchors as any)?.a?.firstPayISO || payScheduleA.anchorDate };
+          const psBAligned: PaySchedule = { ...payScheduleB, anchorDate: (anchors as any)?.b?.firstPayISO || payScheduleB.anchorDate };
           simResult = runJoint(
             depositA,
             depositB,
@@ -1078,8 +1114,93 @@ const [state, setState] = useState<AppState>({
             psAAligned,
             psBAligned,
             allBills,
-            { months: 12, fairnessRatioA }
+            { months: 12, fairnessRatioA, initialBalance: (usePlanStore.getState().inputs as any)?.initialBalance ?? 0 }
           );
+          // Hard guard: if negative due to rounding, loop bump until non-negative (bounded)
+          const cycles = (fq: PaySchedule['frequency']) => fq==='WEEKLY'?52/12 : (fq==='FORTNIGHTLY'||fq==='BIWEEKLY'?26/12 : (fq==='FOUR_WEEKLY'?13/12 : 1));
+          {
+            let guards = 0;
+            while (simResult.minBalance < 0 && guards++ < 12) {
+              const short = -simResult.minBalance;
+              const monthlyBump = Math.max(1, Math.ceil(short / 12));
+              const bumpA = Math.max(1, Math.ceil((monthlyBump * fairnessRatioA) / cycles(psAAligned.frequency)));
+              const bumpB = Math.max(0, Math.ceil((monthlyBump * (1 - fairnessRatioA)) / cycles(psBAligned.frequency)));
+              depositA += bumpA;
+              depositB = (depositB || 0) + bumpB;
+              simResult = runJoint(
+                depositA,
+                depositB,
+                startFromWorker,
+                psAAligned,
+                psBAligned,
+                allBills,
+                { months: 12, fairnessRatioA }
+              );
+            }
+          }
+          // Shave down via bisection on monthly deposits to get closer to ideal while staying >= 0
+          {
+            const cyclesLocal = (fq: PaySchedule['frequency']) => fq==='WEEKLY'?52/12 : (fq==='FORTNIGHTLY'||fq==='BIWEEKLY'?26/12 : (fq==='FOUR_WEEKLY'?13/12 : 1));
+            const cyA = cyclesLocal(psAAligned.frequency);
+            const cyB = cyclesLocal(psBAligned.frequency);
+            const baseMonthlyA = depositA * cyA;
+            const baseMonthlyB = (depositB || 0) * cyB;
+            let lo = 0.0, hi = 1.0;
+            let bestA = depositA, bestB = (depositB || 0);
+            for (let i = 0; i < 10; i++) {
+              const f = (lo + hi) / 2;
+              const testA = Math.max(0, Math.floor((baseMonthlyA * f) / cyA));
+              const testB = Math.max(0, Math.floor((baseMonthlyB * f) / cyB));
+              const r = runJoint(testA, testB, startFromWorker, psAAligned, psBAligned, allBills, { months: 12, fairnessRatioA, initialBalance: (usePlanStore.getState().inputs as any)?.initialBalance ?? 0 });
+              if (r.minBalance >= 0) { hi = f; bestA = testA; bestB = testB; simResult = r; } else { lo = f; }
+            }
+            depositA = bestA; depositB = bestB;
+          }
+          // Trim end-balance: reduce per-pay by €1 while keeping minBalance >= 0 (cap at 6 steps)
+          {
+            // Reduce end-balance toward ~€50 while keeping min >= 0
+            const target = (usePlanStore.getState().inputs as any)?.initialBalance ?? 50;
+            let steps = 0;
+            while (steps++ < 180 && (simResult.endBalance ?? 0) > target) {
+              const trialA = Math.max(0, depositA - 1);
+              const trialB = Math.max(0, (depositB || 0) - 1);
+              const r = runJoint(trialA, trialB, startFromWorker, psAAligned, psBAligned, allBills, { months: 12, fairnessRatioA, initialBalance: (usePlanStore.getState().inputs as any)?.initialBalance ?? 0 });
+              if (r.minBalance >= 0) { depositA = trialA; depositB = trialB; simResult = r; } else { break; }
+            }
+          }
+          // Final guarantee after all trimming: ensure minBalance is non-negative
+          {
+            let guards = 0;
+            while (simResult.minBalance < 0 && guards++ < 6) {
+              const short = -simResult.minBalance;
+              const monthlyBump = Math.max(1, Math.ceil(short / 12));
+              const bumpA = Math.max(1, Math.ceil((monthlyBump * fairnessRatioA) / (psAAligned.frequency==='WEEKLY'?52/12:(psAAligned.frequency==='FORTNIGHTLY'||psAAligned.frequency==='BIWEEKLY'?26/12:(psAAligned.frequency==='FOUR_WEEKLY'?13/12:1)))));
+              const bumpB = Math.max(0, Math.ceil((monthlyBump * (1 - fairnessRatioA)) / (psBAligned.frequency==='WEEKLY'?52/12:(psBAligned.frequency==='FORTNIGHTLY'||psBAligned.frequency==='BIWEEKLY'?26/12:(psBAligned.frequency==='FOUR_WEEKLY'?13/12:1)))));
+              depositA += bumpA;
+              depositB = (depositB || 0) + bumpB;
+              simResult = runJoint(depositA, depositB, startFromWorker, psAAligned, psBAligned, allBills, { months: 12, fairnessRatioA, initialBalance: (usePlanStore.getState().inputs as any)?.initialBalance ?? 0 });
+            }
+          }
+
+          // Defer bill suggestions to the worker in the background to keep UI snappy
+          setTimeout(() => {
+            try {
+              const api = (window as any).__workerAPI;
+              if (!api) return;
+              api.simulate({ ...(inputs as PlanInputs), startISO: startFromWorker, bills: mergedBills, elecPredicted }, { includeSuggestions: true })
+                .then((r: SimResult) => {
+                  if (r?.billSuggestions?.length) {
+                    usePlanStore.getState().setResult({
+                      ...usePlanStore.getState().result,
+                      billSuggestions: r.billSuggestions
+                    });
+                  }
+                })
+                .catch((err: any) => console.warn('[forecast] background suggestions failed:', err));
+            } catch (e) {
+              console.warn('[forecast] scheduling background suggestions failed:', e);
+            }
+          }, 0);
         } else {
           const startDateJoint = startDate;
           const deposits = findDepositJoint(
@@ -1104,6 +1225,21 @@ const [state, setState] = useState<AppState>({
         }
 
         console.log('[forecast] deposits: A=%s, B=%s', depositA.toFixed(2), (depositB ?? 0).toFixed(2));
+        // Background: ask the worker to log gating/currentMonthly using trimmed deposits (non-blocking)
+        setTimeout(() => {
+          try {
+            const api = (window as any).__workerAPI;
+            if (!api) return;
+            const inputsForSuggestions: PlanInputs = {
+              ...(inputs as PlanInputs),
+              bills: mergedBills,
+              elecPredicted,
+              startISO: startDate,
+              mode: 'joint',
+            } as any;
+            api.explainGating(inputsForSuggestions, { a: depositA, b: depositB }, simResult.minBalance).catch(()=>{});
+          } catch {}
+        }, 0);
         // Freeze per‑pay deposits for preview reuse
         const frozenStart = useWorkerOptimization ? (workerResult.startISO || startDate) : startDate;
         usePlanStore.getState().setResult({
@@ -1135,10 +1271,7 @@ const [state, setState] = useState<AppState>({
             }
           }, 0);
         } else {
-          usePlanStore.getState().setResult({
-            ...usePlanStore.getState().result,
-            billSuggestions: workerResult.billSuggestions ?? []
-          });
+          // Keep suggestions async via worker only to keep Results snappy
         }
         setState((prev) => ({
           ...prev,
@@ -1944,6 +2077,16 @@ const [state, setState] = useState<AppState>({
                       <strong className="text-success">
                         {formatCurrency(state.forecastResult.minBalance)}
                       </strong>
+                      {(() => {
+                        // Find the first timeline entry where balance equals minBalance (±0.01)
+                        try {
+                          const tl: any[] = state.forecastResult.timeline || [];
+                          const m = state.forecastResult.minBalance ?? 0;
+                          const match = tl.find(t => Math.abs((t.balance ?? 0) - m) < 0.01);
+                          const iso = match?.dateISO || match?.date;
+                          return iso ? ` on ${iso}` : '';
+                        } catch { return ''; }
+                      })()}
                       {' '}— staying above zero throughout the forecast period.
                     </AlertDescription>
                   </Alert>
@@ -2296,16 +2439,19 @@ const [state, setState] = useState<AppState>({
                 | { monthlyIncomeA: number; monthlyIncomeB: number; monthlyDepositA: number; monthlyDepositB: number }
                 | undefined;
 
-              const monthlyIncomeA = frozen?.monthlyIncomeA ?? (
+              const monthlyIncomeA = (
                 state.userA.paySchedule?.averageAmount ? state.userA.paySchedule.averageAmount * cyclesPerMonthLocal(state.userA.paySchedule.frequency) : 0
               );
               const monthlyIncomeB = state.mode === 'joint'
-                ? (frozen?.monthlyIncomeB ?? (state.userB?.paySchedule?.averageAmount ? (state.userB.paySchedule.averageAmount * cyclesPerMonthLocal(state.userB.paySchedule.frequency)) : 0))
+                ? (state.userB?.paySchedule?.averageAmount ? (state.userB.paySchedule.averageAmount * cyclesPerMonthLocal(state.userB.paySchedule.frequency)) : 0)
                 : 0;
 
-              const monthlyDepositA = frozen?.monthlyDepositA ?? ((state.forecastResult?.depositA || 0) * cyclesPerMonthLocal(state.userA.paySchedule?.frequency));
+              // Prefer the final Results deposits; fall back to frozen only if not available
+              const monthlyDepositA = ((state.forecastResult?.depositA || 0) * cyclesPerMonthLocal(state.userA.paySchedule?.frequency))
+                || (frozen?.monthlyDepositA ?? 0);
               const monthlyDepositB = state.mode === 'joint' ? (
-                frozen?.monthlyDepositB ?? ((state.forecastResult?.depositB || 0) * cyclesPerMonthLocal(state.userB?.paySchedule?.frequency))
+                ((state.forecastResult?.depositB || 0) * cyclesPerMonthLocal(state.userB?.paySchedule?.frequency))
+                || (frozen?.monthlyDepositB ?? 0)
               ) : 0;
 
               const allowanceMonthlyA = (state.weeklyAllowanceA ?? 0) * 52 / 12;
@@ -2386,7 +2532,22 @@ const [state, setState] = useState<AppState>({
                     {state.mode === 'joint' && summaryView === 'household' ? (
                       (() => {
                         const combinedIncome = (monthlyIncomeA || 0) + (monthlyIncomeB || 0);
-                        const combinedBills = (monthlyDepositA || 0) + (monthlyDepositB || 0);
+                        // Show average monthly bills (normalized recurring + electricity average)
+                        const toMonthlyNorm = (amt: number, freq?: string) => {
+                          switch ((freq || '').toLowerCase()) {
+                            case 'weekly': return (amt * 52) / 12;
+                            case 'fortnightly': return (amt * 26) / 12;
+                            case 'four_weekly': return (amt * 13) / 12;
+                            case 'monthly':
+                            default: return amt;
+                          }
+                        };
+                        const detectedState: any = usePlanStore.getState().detected || {};
+                        const recurringMonthly = ([...(detectedState.recurring || []), ...(detectedState.recurringB || [])] as any[])
+                          .reduce((s, r) => s + toMonthlyNorm(Number(r.amount) || 0, r.freq), 0);
+                        const elecPred = (state.bills || []).filter(b => b.source === 'predicted-electricity');
+                        const elecMonthly = elecPred.reduce((s, b) => s + (Number(b.amount) || 0), 0) / 12;
+                        const combinedBills = recurringMonthly + elecMonthly;
                         const combinedAllowance = allowanceMonthlyA + allowanceMonthlyB;
                         const combinedSavings = (sumA + sumB + sumJ);
                         const combinedLeftover = Math.max(0, combinedIncome - combinedBills - combinedAllowance - combinedSavings);
@@ -2489,7 +2650,11 @@ const [state, setState] = useState<AppState>({
                                       <div className="text-xs text-muted-foreground">{selectedPct}%</div>
                                     )}
                                     {selectedItem.name === 'Bills' && (
-                                      <div className="text-xs text-muted-foreground">A {Math.round(fairnessRatioA*100)}% / B {Math.round((1-fairnessRatioA)*100)}%</div>
+                                      (() => {
+                                        const incSum = (monthlyIncomeA || 0) + (monthlyIncomeB || 0) || 1;
+                                        const incomeRatioA = Math.round(((monthlyIncomeA || 0) / incSum) * 100);
+                                        return <div className="text-xs text-muted-foreground">A {incomeRatioA}% / B {100 - incomeRatioA}%</div>;
+                                      })()
                                     )}
                                     {selectedItem.name === 'Weekly allowance' && (
                                       <div className="text-xs text-muted-foreground">A {formatCurrency(allowanceMonthlyA)} / B {formatCurrency(allowanceMonthlyB)}</div>
@@ -2658,12 +2823,19 @@ const [state, setState] = useState<AppState>({
       {state.step === 'results' && showBillWizard && (
         <BillDateWizard
           open={showBillWizard}
-          suggestions={(storeResult?.billSuggestions || []).map(s => ({
-            billId: s.billId,
-            name: s.name || state.bills.find(b => b.id === s.billId)?.name,
-            currentDate: s.currentDate,
-            suggestedDate: s.suggestedDate
-          }))}
+          suggestions={(storeResult?.billSuggestions || []).map(s => {
+            // Resolve to the actual bill in state for stable id + amount
+            const exactById = state.bills.find(b => b.id === s.billId);
+            const byNameAndDate = state.bills.find(b => (b.name === s.name) && ((b.dueDate || (b as any).dueDateISO) === s.currentDate));
+            const resolved = exactById || byNameAndDate;
+            return {
+              billId: resolved?.id || s.billId,
+              name: resolved?.name || s.name || s.billId,
+              amount: resolved?.amount,
+              currentDate: s.currentDate,
+              suggestedDate: s.suggestedDate
+            };
+          })}
           currentMonthlyA={(state.forecastResult?.depositA || 0) * cyclesPerMonth(state.userA.paySchedule?.frequency)}
           currentMonthlyB={typeof state.forecastResult?.depositB === 'number' ? (state.forecastResult?.depositB || 0) * cyclesPerMonth(state.userB?.paySchedule?.frequency) : undefined}
           onPreview={async (ids) => {
@@ -2764,6 +2936,11 @@ const [state, setState] = useState<AppState>({
               toISO: s.suggestedDate
             }));
             if (moves.length === 0) { setShowBillWizard(false); return; }
+            // Clear suggestions while recomputing to avoid flicker of stale entries
+            try {
+              const cur = usePlanStore.getState().result;
+              usePlanStore.getState().setResult({ ...(cur || {} as any), billSuggestions: [] } as any);
+            } catch {}
             setDateMoves(prev => [...prev, ...moves]);
             setShowBillWizard(false);
             // Ensure moves are applied in the very next recompute using the fresh list
