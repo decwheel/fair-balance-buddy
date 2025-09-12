@@ -81,7 +81,7 @@ export const BillEditorDialog: React.FC<BillEditorDialogProps> = ({
             <Label htmlFor="bill-name">Name</Label>
             <Input id="bill-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Broadband" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="grid gap-2">
               <Label htmlFor="bill-amount">Amount (€)</Label>
               <Input id="bill-amount" type="number" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />

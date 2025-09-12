@@ -220,7 +220,7 @@ export function TariffReviewForm({ initialTariff, onTariffConfirmed, onCancel }:
             <Zap className="w-4 h-4" />
             Tariff Summary
           </h4>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">Supplier:</span>
               <Badge variant="secondary" className="ml-2">{tariff.supplier}</Badge>

@@ -195,7 +195,7 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
             {uploadResult.tariff && (
               <div className="space-y-3">
                 <h4 className="font-medium">Extracted Rates:</h4>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {Object.entries(uploadResult.tariff.rates).map(([band, rate]) => (
                     <div key={band} className="flex justify-between items-center p-2 bg-secondary/50 rounded">
                       <span className="capitalize font-medium">{band}:</span>

@@ -1396,7 +1396,7 @@ const [state, setState] = useState<AppState>({
       <div className="container mx-auto px-4 py-8 max-w-6xl">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent mb-4">
+          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent mb-4">
             FairSplit
           </h1>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
@@ -1839,7 +1839,7 @@ const [state, setState] = useState<AppState>({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Bank Bills</p>
                   <Badge variant="secondary">
