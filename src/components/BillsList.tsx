@@ -154,17 +154,14 @@ export function BillsList({
         role="checkbox" aria-checked={checked}
         onClick={() => { const next = new Set(selected); checked ? next.delete(r.id) : next.add(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); announce(`Selected ${name}, ${amountStr}`); toast.message(`${next.size} selected`, { duration: 1200 }); }}
       >
-        <div className="grid grid-cols-[24px,1fr,auto] sm:grid-cols-[24px,1fr,auto,auto,auto,96px] gap-x-2 sm:gap-x-3 py-3 px-2 items-center sm:grid-rows-1 grid-rows-2">
+        <div className="grid grid-cols-[24px,1fr,auto] gap-x-2 sm:gap-x-3 py-3 px-2 items-center grid-rows-2">
           <div className="row-start-1 row-end-2 sm:row-auto">
             <Checkbox checked={checked} onClick={(e)=>e.stopPropagation()} onCheckedChange={(v)=>{ const next = new Set(selected); v? next.add(r.id) : next.delete(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); toast.message(`${next.size} selected`, { duration: 1200 }); }} />
           </div>
-          <div className="min-w-0 col-start-2 col-end-2 row-start-1 row-end-1 sm:row-auto" onClick={(e)=>e.stopPropagation()}>
+          <div className="min-w-0 col-start-2 col-end-2 row-start-1 row-end-1" onClick={(e)=>e.stopPropagation()}>
             {!editing ? (
               <div className="flex items-center gap-2">
-                <span className="font-medium text-sm sm:text-base truncate flex-1">{name}</span>
-                {n.category && (
-                  <span className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ${categoryClasses(n.category)}`}>{n.category}</span>
-                )}
+                <span className="font-semibold text-sm sm:text-base truncate flex-1">{name}</span>
                 <button aria-label={`Edit ${name}`} className="text-muted-foreground shrink-0 h-8 w-8 inline-flex items-center justify-center" onClick={()=>setEditing(true)}>
                   <Pencil className="w-4 h-4" />
                 </button>
@@ -176,21 +173,24 @@ export function BillsList({
               </div>
             )}
           </div>
-          <div className="col-start-3 col-end-4 sm:col-start-6 sm:col-end-7 row-start-1 row-end-3 sm:row-auto justify-self-end font-semibold tabular-nums whitespace-nowrap" onClick={(e)=>e.stopPropagation()}>
+          <div className="col-start-3 col-end-4 row-start-1 row-end-3 justify-self-end font-semibold tabular-nums whitespace-nowrap" onClick={(e)=>e.stopPropagation()}>
             {!editing ? (
               <span>{amountStr}</span>
             ) : (
               <input className="h-8 w-20 border rounded-md px-2 text-sm text-right" value={amt} onChange={(e)=>setAmt(e.target.value)} onBlur={()=> onAmount?.(r.id, Math.abs(parseFloat(amt)) || 0)} />
             )}
           </div>
-          <div className="hidden sm:block sm:col-start-3 sm:col-end-4">{freqChip && (<span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full">{freqChip}</span>)}</div>
-          <div className="hidden sm:block sm:col-start-4 sm:col-end-5">{dayChip && (<span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full">{dayChip}</span>)}</div>
-          <div className="hidden sm:block sm:col-start-5 sm:col-end-6"><span className="text-[10px] bg-muted/60 px-2 py-0.5 rounded-full">{r.owner}</span></div>
-          <div className="sm:hidden col-start-2 col-end-3 row-start-2 row-end-3 flex items-center gap-1 min-w-0 overflow-hidden">
-            {freqChip && (<span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full truncate">{freqChip}</span>)}
-            {dayChip && (<span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full truncate max-[330px]:hidden">{dayChip}</span>)}
-            <span className="text-[10px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{r.owner}</span>
-            {lowConf && (<span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0" aria-hidden="true">Low conf.</span>)}
+          {/* Line 2: meta sentence and single tag pill at far right */}
+          <div className="col-start-2 col-end-3 row-start-2 row-end-3 flex items-center justify-between gap-2 min-w-0">
+            <div className="text-[12px] text-muted-foreground truncate">
+              {(freqChip ? (freqChip.charAt(0).toUpperCase() + freqChip.slice(1)) : '')}
+              {dayChip ? ` · ${dayChip}` : ''}
+              {` · ${r.owner}`}
+              {lowConf ? ' · Low confidence' : ''}
+            </div>
+            {n.category && (
+              <span className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 max-[380px]:hidden ${categoryClasses(n.category)}`}>{n.category}</span>
+            )}
           </div>
         </div>
       </div>
