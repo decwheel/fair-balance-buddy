@@ -1607,6 +1607,12 @@ const Index = () => {
                     return { perOcc, unit, needsConfirm: state.linkedB && !state.wageConfirmedB, stale: !!state.wageConfirmedB && stale, lastDate };
                   })()}
                   onLink={(p) => {
+                    const isLinked = p === 'A' ? state.linkedA : state.linkedB;
+                    if (isLinked) {
+                      setOpenSheetFor(p);
+                      track('wages_sheet_opened', { person: p });
+                      return;
+                    }
                     // analytics
                     track('bank_link_started', { person: p });
                     if (useMock) return link(p);

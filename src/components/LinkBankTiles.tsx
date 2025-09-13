@@ -39,7 +39,7 @@ export function LinkBankTiles({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
         <Tile person="A" data={A} onLink={onLink} pulse={false} />
         <Tile person="B" data={B} onLink={onLink} pulse={!!pulseB} />
       </div>
@@ -56,11 +56,12 @@ function Tile({ person, data, onLink, pulse }: { person: Person; data: { linked:
   const lastDate = data.summary?.lastDate;
   const isLinked = data.linked;
 
+  const aria = isLinked ? `Open Person ${person} wages` : `Link bank for person ${person}`;
   return (
     <button
       onClick={() => onLink(person)}
-      className={cn('group relative text-left border rounded-xl p-3 h-full min-h-24 flex items-start gap-3 transition shadow-sm', isLinked ? 'border-green-600/50 bg-green-600/5' : 'hover:bg-muted/50', pulse ? 'animate-pulse' : '')}
-      aria-label={`Link bank for person ${person}`}
+      className={cn('group text-left border rounded-xl p-3 sm:p-4 h-full min-h-24 sm:min-h-40 flex items-start gap-3 transition shadow-sm w-full', isLinked ? 'border-green-600/50 bg-green-600/5' : 'hover:bg-muted/50', pulse ? 'animate-pulse' : '')}
+      aria-label={aria}
       data-person-tile={person}
     >
       <div className={cn('w-10 h-10 rounded-full border flex items-center justify-center shrink-0', isLinked ? 'bg-white' : 'bg-secondary')}>
@@ -73,30 +74,33 @@ function Tile({ person, data, onLink, pulse }: { person: Person; data: { linked:
       <div className="min-w-0 flex-1">
         {!isLinked ? (
           <>
-            <div className="font-medium">Link bank</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-medium text-base sm:text-lg">Link bank</div>
+              <Badge className="rounded-full text-[10px]" variant={'secondary'} aria-hidden="true">{person}</Badge>
+            </div>
           </>
         ) : (
           <>
-            <div className="font-medium">{data.bank?.name || `Linked bank`}</div>
-            <div className="text-xs text-muted-foreground">{`Linked ${relative(data.bank?.linkedAtISO || '')}`}</div>
+            <div className="flex items-start justify-between gap-2">
+              <div className="font-medium text-base sm:text-lg truncate">{data.bank?.name || `Linked bank`}</div>
+              <Badge className="rounded-full text-[10px]" variant={'default'} aria-hidden="true">{person}</Badge>
+            </div>
+            <div className="text-xs sm:text-sm text-muted-foreground mt-1">{`Linked ${relative(data.bank?.linkedAtISO || '')}`}</div>
             {perOcc != null && (
-              <div className="text-xs mt-0.5">Detected: {Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(perOcc)}/ {unit || 'month'}</div>
+              <div className="text-xs sm:text-sm mt-1">Detected: {Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(perOcc)}/ {unit || 'month'}</div>
             )}
             {needsConfirm && (
-              <div className="text-[11px] text-amber-700 bg-amber-100 inline-block px-2 py-0.5 rounded-full mt-1">Needs confirmation</div>
+              <div className="text-[11px] text-amber-700 bg-amber-100 inline-block px-2 py-0.5 rounded-full mt-1" aria-hidden="true">Needs confirmation</div>
             )}
             {lastDate && (
-              <div className="text-[11px] text-muted-foreground mt-1">Date: {safeDate(lastDate)}</div>
+              <div className="text-[11px] sm:text-xs text-muted-foreground mt-1">Date: {safeDate(lastDate)}</div>
             )}
             {stale && (
-              <div className="text-[11px] text-amber-700 bg-amber-100 inline-block px-2 py-0.5 rounded-full mt-1">Salary data may be outdated</div>
+              <div className="text-[11px] text-amber-700 bg-amber-100 inline-block px-2 py-0.5 rounded-full mt-1" aria-hidden="true">Outdated</div>
             )}
           </>
         )}
       </div>
-      <Badge className="absolute right-2 top-2 rounded-full text-[10px]" variant={isLinked ? 'default' : 'secondary'}>
-        {person}
-      </Badge>
     </button>
   );
 }
