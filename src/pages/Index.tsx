@@ -45,6 +45,8 @@ import { Stepper } from '@/components/Stepper';
 import { BillsList } from '@/components/BillsList';
 import { StickySummaryBar } from '@/components/StickySummaryBar';
 import { WagesCard } from '@/components/WagesCard';
+import { LinkBankTiles, type BankInfo } from '@/components/LinkBankTiles';
+import { WagesBottomSheet } from '@/components/WagesBottomSheet';
 import { ElectricityUpload } from '@/components/ElectricityUpload';
 import { ForecastForm } from '@/components/ForecastForm';
 import { ResultsHero } from '@/components/ResultsHero';
@@ -113,7 +115,7 @@ interface AppState {
 
 const Index = () => {
   const { announce } = useAnnounce();
-const [state, setState] = useState<AppState>({
+  const [state, setState] = useState<AppState>({
   mode: 'single',
   userA: { transactions: [], paySchedule: null },
   linkedA: false,
@@ -174,6 +176,11 @@ const [state, setState] = useState<AppState>({
 
   // Access plan store early so hooks below can depend on it safely
   const { detected, inputs, result: storeResult } = usePlanStore();
+
+  // Link tiles & wages sheet state
+  const [openSheetFor, setOpenSheetFor] = useState<'A'|'B'|null>(null);
+  const [bankInfoA, setBankInfoA] = useState<BankInfo | undefined>(undefined);
+  const [bankInfoB, setBankInfoB] = useState<BankInfo | undefined>(undefined);
 
   // Helper: cycles per month for presenting monthly-equivalents
   const cyclesPerMonth = (freq?: string) => {
@@ -684,6 +691,18 @@ const [state, setState] = useState<AppState>({
           : { ...prev, userB: { transactions, paySchedule: pay } as any, linkedB: true, mode: prev.mode === 'single' ? 'joint' : prev.mode, step: 'bank' }
       ));
 
+      // Update bank tile info and open wages sheet
+      const nowISO = new Date().toISOString();
+      if (partner === 'A') {
+        setBankInfoA(prev => prev || { name: (instA?.name || 'Linked bank'), linkedAtISO: nowISO });
+      } else {
+        setBankInfoB(prev => prev || { name: (instB?.name || 'Linked bank'), linkedAtISO: nowISO });
+      }
+      track('bank_link_success', { person: partner });
+      setOpenSheetFor(partner);
+      track('wages_sheet_opened', { person: partner });
+      announce(`Person ${partner} linked. Detected wages available.`);
+
       // Kick off detection using known transactions without relying on setState return value
       const txA = partner === 'A' ? transactions : (state.userA?.transactions ?? []);
       const txB = partner === 'B' ? transactions : (state.userB?.transactions ?? []);
@@ -718,6 +737,18 @@ const [state, setState] = useState<AppState>({
             : { ...prev, userB: { transactions: txs, paySchedule: pay } as any, linkedB: true, mode: prev.mode === 'single' ? 'joint' : prev.mode, step: 'bank' };
         return nextState;
       });
+
+      // update bank info and open the wages sheet
+      const nowISO = new Date().toISOString();
+      if (partner === 'A') {
+        setBankInfoA(prev => prev || { name: (instA?.name || 'Linked bank'), linkedAtISO: nowISO });
+      } else {
+        setBankInfoB(prev => prev || { name: (instB?.name || 'Linked bank'), linkedAtISO: nowISO });
+      }
+      track('bank_link_success', { person: partner });
+      setOpenSheetFor(partner);
+      track('wages_sheet_opened', { person: partner });
+      announce(`Person ${partner} linked. Detected wages available.`);
 
       (window as any).__runDetection?.(
         nextState.userA.transactions ?? [],
@@ -1550,23 +1581,55 @@ const [state, setState] = useState<AppState>({
                   <p>Fetching bank institutions…</p>
                 </div>
               )}
-              {/* Link accounts (A & B) */}
+              {/* Link banks (A & B) – mobile‑first tiles */}
               <div className="rounded-xl border p-4">
-                <h3 className="font-semibold mb-3">Link accounts</h3>
-                  <div className={`grid gap-4 ${state.mode === 'joint' ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
-                    {/* Partner A */}
-                    <div className={`rounded-lg border p-3 ${state.linkedA ? 'hidden' : ''} flex flex-col items-center`}>
-                    <div className="text-sm mb-2">Person A</div>
-                    {useMock ? (
-                      <Button onClick={() => link('A')} disabled={busy === 'A'}>
-                        {busy === 'A' ? 'Linking…' : 'Link account (A)'}
-                      </Button>
-                    ) : (
-                      <>
+                <LinkBankTiles
+                  linkedA={state.linkedA}
+                  linkedB={state.linkedB}
+                  bankA={bankInfoA}
+                  bankB={bankInfoB}
+                  summaryA={(() => {
+                    const s = detected?.salaries?.[0];
+                    const perOcc = s?.amount;
+                    const unit = s?.freq === 'weekly' ? 'week' : s?.freq === 'fortnightly' ? 'fortnight' : s?.freq === 'four_weekly' ? '4 weeks' : 'month';
+                    const stale = s?.firstSeen ? ((Date.now() - new Date(s.firstSeen).getTime())/(1000*60*60*24) > 60) : false;
+                    const wages = categorizeBankTransactions(state.userA.transactions).wages;
+                    const lastDate = wages.length ? [...wages].map(w=>w.date).sort().slice(-1)[0] : (s?.firstSeen);
+                    return { perOcc, unit, needsConfirm: state.linkedA && !state.wageConfirmedA, stale: state.wageConfirmedA && stale, lastDate };
+                  })()}
+                  summaryB={(() => {
+                    const s: any = (detected as any)?.salariesB?.[0];
+                    const perOcc = s?.amount;
+                    const unit = s?.freq === 'weekly' ? 'week' : s?.freq === 'fortnightly' ? 'fortnight' : s?.freq === 'four_weekly' ? '4 weeks' : 'month';
+                    const stale = s?.firstSeen ? ((Date.now() - new Date(s.firstSeen).getTime())/(1000*60*60*24) > 60) : false;
+                    const wagesB = state.userB?.transactions ? categorizeBankTransactions(state.userB.transactions).wages : [];
+                    const lastDate = wagesB.length ? [...wagesB].map(w=>w.date).sort().slice(-1)[0] : (s?.firstSeen);
+                    return { perOcc, unit, needsConfirm: state.linkedB && !state.wageConfirmedB, stale: !!state.wageConfirmedB && stale, lastDate };
+                  })()}
+                  onLink={(p) => {
+                    // analytics
+                    track('bank_link_started', { person: p });
+                    if (useMock) return link(p);
+                    // live: require institution selection
+                    if (p === 'A') {
+                      if (!instA) { toast({ description: 'Choose a bank for Person A first.' }); return; }
+                      return link('A', instA.id);
+                    } else {
+                      if (!instB) { toast({ description: 'Choose a bank for Person B first.' }); return; }
+                      return link('B', instB.id);
+                    }
+                  }}
+                  pulseB={state.linkedA && !state.linkedB}
+                />
+
+                {/* Live mode: small bank chooser inputs under tiles */}
+                {!useMock && (
+                  <div className="mt-3 grid grid-cols-1 min-[360px]:grid-cols-2 gap-3">
+                    {!state.linkedA && (
+                      <div>
                         <Input
                           list="instListA"
-                          placeholder="Choose bank…"
-                          className="mb-2"
+                          placeholder="Choose bank for A…"
                           onChange={(e) => {
                             const chosen = institutions.find(i => i.name === e.target.value);
                             setInstA(chosen ?? null);
@@ -1577,113 +1640,37 @@ const [state, setState] = useState<AppState>({
                             <option key={i.id} value={i.name} />
                           ))}
                         </datalist>
-                        <Button
-                          onClick={() => instA && link('A', instA.id)}
-                          disabled={!instA || busy === 'A'}
-                        >
-                          {busy === 'A' ? 'Opening bank…' : 'Link account (A)'}
-                        </Button>
-                      </>
+                      </div>
+                    )}
+                    {state.mode === 'joint' && !state.linkedB && (
+                      <div>
+                        <Input
+                          list="instListB"
+                          placeholder="Choose bank for B…"
+                          onChange={(e) => {
+                            const chosen = institutions.find(i => i.name === e.target.value);
+                            setInstB(chosen ?? null);
+                          }}
+                        />
+                        <datalist id="instListB">
+                          {institutions.slice(0, 50).map(i => (
+                            <option key={i.id} value={i.name} />
+                          ))}
+                        </datalist>
+                      </div>
                     )}
                   </div>
-                  {/* Partner B */}
-                  {state.mode === 'joint' && (
-                    <div className={`rounded-lg border p-3 ${state.linkedB ? 'hidden' : ''} flex flex-col items-center`}>
-                      <div className="text-sm mb-2">Person B</div>
-                      {useMock ? (
-                        <Button onClick={() => link('B')} disabled={busy === 'B'}>
-                          {busy === 'B' ? 'Linking…' : 'Link account (B)'}
-                        </Button>
-                      ) : (
-                        <>
-                          <Input
-                            list="instListB"
-                            placeholder="Choose bank…"
-                            className="mb-2"
-                            onChange={(e) => {
-                              const chosen = institutions.find(i => i.name === e.target.value);
-                              setInstB(chosen ?? null);
-                            }}
-                          />
-                          <datalist id="instListB">
-                            {institutions.slice(0, 50).map(i => (
-                              <option key={i.id} value={i.name} />
-                            ))}
-                          </datalist>
-                          <Button
-                            onClick={() => instB && link('B', instB.id)}
-                            disabled={!instB || busy === 'B'}
-                          >
-                            {busy === 'B' ? 'Opening bank…' : 'Link account (B)'}
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-                {/* Inline wages cards when linked */}
-                <div className={`grid gap-4 mt-4 ${state.mode === 'joint' ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
-                  {state.linkedA && (() => {
-                    const pay = state.userA.paySchedule;
-                    let next: string | undefined;
-                    if (pay) {
-                      const dates = calculatePayDates(pay.frequency, pay.anchorDate, 3);
-                      const today = new Date().toISOString().slice(0,10);
-                      next = dates.find(d => d >= today) ?? dates[0];
-                    }
-                    // Fallback salary if worker didn't populate yet
-                    const fallbackA = pay ? [{
-                      amount: pay.averageAmount ?? 0,
-                      freq: (pay.frequency === 'WEEKLY' ? 'weekly' : pay.frequency === 'FORTNIGHTLY' || pay.frequency === 'BIWEEKLY' ? 'fortnightly' : pay.frequency === 'FOUR_WEEKLY' ? 'four_weekly' : 'monthly') as any,
-                      description: 'Detected salary',
-                      firstSeen: pay.anchorDate,
-                    }] : [];
-                    const salariesA = (detected?.salaries && detected.salaries.length) ? detected.salaries as any : fallbackA as any;
-                    return (
-                      <WagesCard
-                        person="A"
-                        salaries={salariesA}
-                        onEdit={() => { track('wages_edited'); }}
-                        onConfirm={() => setState(prev => ({ ...prev, wageConfirmedA: true }))}
-                        confirmed={state.wageConfirmedA}
-                        nextPayISO={next}
-                      />
-                    );
-                  })()}
-                  {state.mode==='joint' && state.linkedB && (() => {
-                    const pay = state.userB?.paySchedule;
-                    let next: string | undefined;
-                    if (pay) {
-                      const dates = calculatePayDates(pay.frequency, pay.anchorDate, 3);
-                      const today = new Date().toISOString().slice(0,10);
-                      next = dates.find(d => d >= today) ?? dates[0];
-                    }
-                    // Fallback salary if worker didn't populate yet
-                    const fallbackB = pay ? [{
-                      amount: pay.averageAmount ?? 0,
-                      freq: (pay.frequency === 'WEEKLY' ? 'weekly' : pay.frequency === 'FORTNIGHTLY' || pay.frequency === 'BIWEEKLY' ? 'fortnightly' : pay.frequency === 'FOUR_WEEKLY' ? 'four_weekly' : 'monthly') as any,
-                      description: 'Detected salary',
-                      firstSeen: pay.anchorDate,
-                    }] : [];
-                    const salariesB = ((detected as any)?.salariesB && (detected as any).salariesB.length) ? (detected as any).salariesB as any : fallbackB as any;
-                    return (
-                      <WagesCard
-                        person="B"
-                        salaries={salariesB}
-                        onEdit={() => { track('wages_edited'); }}
-                        onConfirm={() => setState(prev => ({ ...prev, wageConfirmedB: true }))}
-                        confirmed={!!state.wageConfirmedB}
-                        nextPayISO={next}
-                      />
-                    );
-                  })()}
-                </div>
+                )}
+
+                {/* No explicit Continue CTA here; users proceed to bills below */}
+
+              </div>
+              {/* Inline wages cards removed per request; bottom sheet remains primary */}
                 {!useMock && (
                   <p className="text-xs text-muted mt-2">
                     You’ll authenticate with your bank in a new tab. Return here when finished.
                   </p>
                 )}
-              </div>
               {/* Removed transaction counts for A/B */}
 
               {/* Inline wages cards appear in place of link boxes after linking */}
@@ -3034,6 +3021,46 @@ const [state, setState] = useState<AppState>({
           </div>
         )}
       </div>
+
+      {/* Wages bottom sheet (primary confirm path) */}
+      {(() => {
+        if (!openSheetFor) return null;
+        const who = openSheetFor;
+        const pay = who === 'A' ? state.userA?.paySchedule : state.userB?.paySchedule || null;
+        let next: string | undefined;
+        if (pay) {
+          const dates = calculatePayDates(pay.frequency, pay.anchorDate, 3);
+          const today = new Date().toISOString().slice(0,10);
+          next = dates.find(d => d >= today) ?? dates[0];
+        }
+        const salaries = (who === 'A')
+          ? ((detected?.salaries && detected.salaries.length) ? detected.salaries as any : (pay ? [{ amount: pay.averageAmount ?? 0, freq: (pay.frequency === 'WEEKLY' ? 'weekly' : pay.frequency === 'FORTNIGHTLY' || pay.frequency === 'BIWEEKLY' ? 'fortnightly' : pay.frequency === 'FOUR_WEEKLY' ? 'four_weekly' : 'monthly') as any, description: 'Detected salary', firstSeen: pay.anchorDate }] : []))
+          : (((detected as any)?.salariesB && (detected as any).salariesB.length) ? (detected as any).salariesB as any : (pay ? [{ amount: pay.averageAmount ?? 0, freq: (pay.frequency === 'WEEKLY' ? 'weekly' : pay.frequency === 'FORTNIGHTLY' || pay.frequency === 'BIWEEKLY' ? 'fortnightly' : pay.frequency === 'FOUR_WEEKLY' ? 'four_weekly' : 'monthly') as any, description: 'Detected salary', firstSeen: pay.anchorDate }] : []));
+        const confirmed = who === 'A' ? state.wageConfirmedA : !!state.wageConfirmedB;
+        return (
+          <WagesBottomSheet
+            open={!!openSheetFor}
+            onOpenChange={(v) => {
+              if (!v) setOpenSheetFor(null);
+            }}
+            person={who}
+            salaries={salaries}
+            nextPayISO={next}
+            confirmed={confirmed}
+            onConfirm={() => {
+              if (who === 'A') setState(prev => ({ ...prev, wageConfirmedA: true }));
+              else setState(prev => ({ ...prev, wageConfirmedB: true }));
+              setOpenSheetFor(null);
+              announce(`Person ${who} wages confirmed`);
+              // if both done, emit completion event
+              const isDoneA = who === 'A' ? true : state.wageConfirmedA;
+              const isDoneB = state.mode === 'joint' ? (who === 'B' ? true : !!state.wageConfirmedB) : true;
+              if (isDoneA && isDoneB) track('link_flow_completed');
+            }}
+            onEdit={() => { /* handled in component via analytics */ }}
+          />
+        );
+      })()}
 
       {/* Review & Apply: Bill Date Suggestions */}
       {state.step === 'results' && showBillWizard && (

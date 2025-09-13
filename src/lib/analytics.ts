@@ -5,7 +5,12 @@ type Events =
   | 'electricity_uploaded'
   | 'forecast_run'
   | 'what_if_run'
-  | 'standing_orders_exported';
+  | 'standing_orders_exported'
+  | 'bank_link_started'
+  | 'bank_link_success'
+  | 'wages_sheet_opened'
+  | 'wages_confirmed'
+  | 'link_flow_completed';
 
 export function track(event: Events, payload?: Record<string, any>) {
   try {
