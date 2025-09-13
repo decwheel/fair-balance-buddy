@@ -1,0 +1,18 @@
+/* Design tokens mapped to existing theme variables */
+:root {
+  /* Colors */
+  --brand-600: var(--primary);
+  --brand-700: var(--primary-hover);
+  --ink-900: var(--foreground);
+  --ink-600: 215 16% 50%;
+  --ink-400: 215 20% 65%;
+  --surface-50: 210 20% 98%;
+  --surface-100: 215 20% 94%;
+  --ok-600: var(--success);
+  --warn-600: var(--warning);
+  --muted-200: var(--border);
+}
+
+/* Radius tokens come from Tailwind classes; documented here for reference */
+/* Cards: rounded-2xl; Chips: rounded-full */
+

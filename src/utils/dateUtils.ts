@@ -114,3 +114,25 @@ export function formatCurrency(amount: number): string {
 export function roundCurrency(amount: number): number {
   return Math.round(amount * 100) / 100;
 }
+
+// Locale-aware date formatting: dd MMM yyyy
+export function formatDate(iso: ISODate, locale?: string): string {
+  try {
+    let d: Date;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+      const [y, m, day] = iso.split('-').map(Number);
+      d = new Date(Date.UTC(y, (m - 1), day));
+    } else {
+      // Fallback: let Date parse it
+      d = new Date(iso);
+    }
+    return new Intl.DateTimeFormat(locale || undefined, {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    }).format(d);
+  } catch {
+    return iso;
+  }
+}

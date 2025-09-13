@@ -117,9 +117,9 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
       </CardHeader>
       <CardContent className="space-y-4">
         {isProcessing && (
-          <div className="space-y-2">
+          <div className="space-y-2" aria-live="polite">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              Extracting tariff information from your bill...
+              Extracting tariff information...
             </div>
           </div>
         )}

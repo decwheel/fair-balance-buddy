@@ -20,14 +20,13 @@ import {
   Zap,
   PiggyBank
 } from 'lucide-react';
-import { EsbCsvUpload } from '@/components/energy/EsbCsvUpload';
-import { LastBillUpload } from '@/components/energy/LastBillUpload';
+// Legacy electricity uploads now wrapped via ElectricityUpload component
 import { loadMockTransactionsA, loadMockTransactionsB, categorizeBankTransactions, extractPayScheduleFromWages, Transaction } from '@/services/mockBank';
 import { EsbReading } from '@/services/esbCsv';
 import { TariffRates } from '@/services/billPdf';
 import { Bill, PaySchedule, findDepositSingle, findDepositJoint, runSingle, runJoint } from '@/services/forecastAdapters';
 import { generateBillSuggestions } from '@/services/optimizationEngine';
-import { formatCurrency, calculatePayDates, addDaysISO } from '@/utils/dateUtils';
+import { formatCurrency, calculatePayDates, addDaysISO, formatDate, addMonthsClampISO } from '@/utils/dateUtils';
 import { predictBills, ElectricityMode } from '@/services/electricityPredictors';
 import { Calendar as DayPicker } from '@/components/ui/calendar';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -42,6 +41,18 @@ import { rollForwardPastBills } from '@/utils/billUtils';
 import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
 import { expandRecurring } from '../lib/expandRecurring';
+import { Stepper } from '@/components/Stepper';
+import { BillsList } from '@/components/BillsList';
+import { StickySummaryBar } from '@/components/StickySummaryBar';
+import { WagesCard } from '@/components/WagesCard';
+import { ElectricityUpload } from '@/components/ElectricityUpload';
+import { ForecastForm } from '@/components/ForecastForm';
+import { ResultsHero } from '@/components/ResultsHero';
+import { ForecastCalendar } from '@/components/ForecastCalendar';
+import { SavingsPanel } from '@/components/SavingsPanel';
+import { CashflowSummary } from '@/components/CashflowSummary';
+import { useAnnounce } from '@/components/accessibility/LiveAnnouncer';
+import { track } from '@/lib/analytics';
 
 // Hoisted helper for salary candidate -> monthly euros
 function toMonthlySalary(s?: SalaryCandidate): number | undefined {
@@ -101,6 +112,7 @@ interface AppState {
 }
 
 const Index = () => {
+  const { announce } = useAnnounce();
 const [state, setState] = useState<AppState>({
   mode: 'single',
   userA: { transactions: [], paySchedule: null },
@@ -153,6 +165,7 @@ const [state, setState] = useState<AppState>({
   // Detailed savings pots toggle for summary charts
   const [showPotsA, setShowPotsA] = useState(false);
   const [showPotsB, setShowPotsB] = useState(false);
+  const [billGroupBy, setBillGroupBy] = useState<'month'|'owner'>('month');
   // Results: Cash Flow Summary view toggles
   const [summaryView, setSummaryView] = useState<'household'|'person'>('household');
   const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
@@ -794,7 +807,7 @@ const [state, setState] = useState<AppState>({
           ...prev.includedBillIds,
           ...electricityBills.map(b => b.id!)
         ])) : prev.includedBillIds,
-        step: electricityBills.length ? 'forecast' : prev.step
+        step: prev.step
       };
     });
 
@@ -826,6 +839,18 @@ const [state, setState] = useState<AppState>({
       }
     }
   };
+
+  // Bridge: when both readings and tariff exist (via ElectricityUpload), build predicted electricity bills
+  useEffect(() => {
+    try {
+      if (state.electricityReadings.length && state.tariffRates) {
+        const alreadyPredicted = (state.bills || []).some(b => b.source === 'predicted-electricity');
+        if (!alreadyPredicted) {
+          handleTariffExtracted(state.tariffRates);
+        }
+      }
+    } catch {}
+  }, [state.electricityReadings, state.tariffRates]);
 
   // Determine the forecast start date: the most recent pay date before the earliest bill
   const getStartDate = (paySchedule: PaySchedule, bills: Bill[]): string => {
@@ -1284,6 +1309,7 @@ const [state, setState] = useState<AppState>({
           isLoading: false,
           step: 'results'
         }));
+        try { track('forecast_run'); announce('Forecast calculated'); } catch {}
       }
     } catch (error) {
       console.error('Forecast failed:', error);
@@ -1369,12 +1395,12 @@ const [state, setState] = useState<AppState>({
     if (updatedState.mode === 'single') {
       const baseline = 150;
       const dep = findDepositSingle(startDate, state.userA.paySchedule!, allBills, baseline);
-      toast({ description: `From ${startDate}, set your deposit to ${formatCurrency(dep)} to stay above zero.` });
+      toast({ description: `From ${formatDate(startDate)}, set your deposit to ${formatCurrency(dep)} to stay above zero.` });
     } else if (state.userB?.paySchedule) {
       const baseline = 800;
       const fairness = 0.55;
       const { depositA, depositB } = findDepositJoint(startDate, state.userA.paySchedule!, state.userB.paySchedule!, allBills, fairness, baseline);
-      toast({ description: `From ${startDate}, set deposits to ${formatCurrency(depositA)} (A) and ${formatCurrency(depositB)} (B).` });
+      toast({ description: `From ${formatDate(startDate)}, set deposits to ${formatCurrency(depositA)} (A) and ${formatCurrency(depositB)} (B).` });
     }
 
     // Re-run forecast with updated bills
@@ -1399,37 +1425,10 @@ const [state, setState] = useState<AppState>({
           <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent mb-4">
             FairSplit
           </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
-            Smart cash-flow forecasting and bill smoothing for Irish households.
-            Calculate optimal deposits to keep your balance above zero.
-          </p>
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">Smart cash-flow and fair deposits.</p>
         </div>
 
-        {/* Progress indicator */}
-        <div className="mb-8">
-          <div className="flex justify-center space-x-4 mb-4">
-            {[
-              { key: 'setup', label: 'Setup', icon: Calculator },
-              { key: 'bank', label: 'Bank Data', icon: TrendingUp },
-              { key: 'energy', label: 'Electricity', icon: Lightbulb },
-              { key: 'forecast', label: 'Forecast', icon: CalendarIcon },
-              { key: 'results', label: 'Results', icon: CheckCircle }
-            ].map(({ key, label, icon: Icon }) => (
-              <div key={key} className="flex flex-col items-center space-y-2 cursor-pointer" onClick={() => setState(prev => ({ ...prev, step: key as AppState['step'] }))}>
-                <div className={`
-                  w-10 h-10 rounded-full flex items-center justify-center border-2 transition-colors
-                  ${state.step === key
-                    ? 'bg-primary border-primary text-primary-foreground'
-                    : 'border-border text-muted-foreground'
-                  }
-                `}>
-                  <Icon className="w-5 h-5" />
-                </div>
-                <span className="text-xs font-medium">{label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Stepper current={state.step} onNavigate={(k)=> setState(prev => ({ ...prev, step: k }))} />
 
         {/* Step Content */}
         {state.step === 'setup' && state.setupPhase === 'choose-mode' && (
@@ -1475,6 +1474,7 @@ const [state, setState] = useState<AppState>({
               )}
             </CardContent>
           </Card>
+          
         )}
 
         {state.step === 'setup' && state.setupPhase === 'choose-couple-type' && (
@@ -1553,9 +1553,9 @@ const [state, setState] = useState<AppState>({
               {/* Link accounts (A & B) */}
               <div className="rounded-xl border p-4">
                 <h3 className="font-semibold mb-3">Link accounts</h3>
-                <div className={`grid gap-4 ${state.mode === 'joint' ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
-                  {/* Partner A */}
-                  <div className="rounded-lg border p-3">
+                  <div className={`grid gap-4 ${state.mode === 'joint' ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
+                    {/* Partner A */}
+                    <div className={`rounded-lg border p-3 ${state.linkedA ? 'hidden' : ''} flex flex-col items-center`}>
                     <div className="text-sm mb-2">Person A</div>
                     {useMock ? (
                       <Button onClick={() => link('A')} disabled={busy === 'A'}>
@@ -1588,7 +1588,7 @@ const [state, setState] = useState<AppState>({
                   </div>
                   {/* Partner B */}
                   {state.mode === 'joint' && (
-                    <div className="rounded-lg border p-3">
+                    <div className={`rounded-lg border p-3 ${state.linkedB ? 'hidden' : ''} flex flex-col items-center`}>
                       <div className="text-sm mb-2">Person B</div>
                       {useMock ? (
                         <Button onClick={() => link('B')} disabled={busy === 'B'}>
@@ -1621,24 +1621,72 @@ const [state, setState] = useState<AppState>({
                     </div>
                   )}
                 </div>
+                {/* Inline wages cards when linked */}
+                <div className={`grid gap-4 mt-4 ${state.mode === 'joint' ? 'md:grid-cols-2' : 'md:grid-cols-1'}`}>
+                  {state.linkedA && (() => {
+                    const pay = state.userA.paySchedule;
+                    let next: string | undefined;
+                    if (pay) {
+                      const dates = calculatePayDates(pay.frequency, pay.anchorDate, 3);
+                      const today = new Date().toISOString().slice(0,10);
+                      next = dates.find(d => d >= today) ?? dates[0];
+                    }
+                    // Fallback salary if worker didn't populate yet
+                    const fallbackA = pay ? [{
+                      amount: pay.averageAmount ?? 0,
+                      freq: (pay.frequency === 'WEEKLY' ? 'weekly' : pay.frequency === 'FORTNIGHTLY' || pay.frequency === 'BIWEEKLY' ? 'fortnightly' : pay.frequency === 'FOUR_WEEKLY' ? 'four_weekly' : 'monthly') as any,
+                      description: 'Detected salary',
+                      firstSeen: pay.anchorDate,
+                    }] : [];
+                    const salariesA = (detected?.salaries && detected.salaries.length) ? detected.salaries as any : fallbackA as any;
+                    return (
+                      <WagesCard
+                        person="A"
+                        salaries={salariesA}
+                        onEdit={() => { track('wages_edited'); }}
+                        onConfirm={() => setState(prev => ({ ...prev, wageConfirmedA: true }))}
+                        confirmed={state.wageConfirmedA}
+                        nextPayISO={next}
+                      />
+                    );
+                  })()}
+                  {state.mode==='joint' && state.linkedB && (() => {
+                    const pay = state.userB?.paySchedule;
+                    let next: string | undefined;
+                    if (pay) {
+                      const dates = calculatePayDates(pay.frequency, pay.anchorDate, 3);
+                      const today = new Date().toISOString().slice(0,10);
+                      next = dates.find(d => d >= today) ?? dates[0];
+                    }
+                    // Fallback salary if worker didn't populate yet
+                    const fallbackB = pay ? [{
+                      amount: pay.averageAmount ?? 0,
+                      freq: (pay.frequency === 'WEEKLY' ? 'weekly' : pay.frequency === 'FORTNIGHTLY' || pay.frequency === 'BIWEEKLY' ? 'fortnightly' : pay.frequency === 'FOUR_WEEKLY' ? 'four_weekly' : 'monthly') as any,
+                      description: 'Detected salary',
+                      firstSeen: pay.anchorDate,
+                    }] : [];
+                    const salariesB = ((detected as any)?.salariesB && (detected as any).salariesB.length) ? (detected as any).salariesB as any : fallbackB as any;
+                    return (
+                      <WagesCard
+                        person="B"
+                        salaries={salariesB}
+                        onEdit={() => { track('wages_edited'); }}
+                        onConfirm={() => setState(prev => ({ ...prev, wageConfirmedB: true }))}
+                        confirmed={!!state.wageConfirmedB}
+                        nextPayISO={next}
+                      />
+                    );
+                  })()}
+                </div>
                 {!useMock && (
                   <p className="text-xs text-muted mt-2">
                     You’ll authenticate with your bank in a new tab. Return here when finished.
                   </p>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">Person A</p>
-                  <Badge variant="secondary">{state.userA.transactions.length} transactions</Badge>
-                </div>
-                {state.mode === 'joint' && state.userB && (
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">Person B</p>
-                    <Badge variant="secondary">{state.userB.transactions.length} transactions</Badge>
-                  </div>
-                )}
-              </div>
+              {/* Removed transaction counts for A/B */}
+
+              {/* Inline wages cards appear in place of link boxes after linking */}
 
               {/* Wage confirmation and Bills selection */}
               {(() => {
@@ -1712,16 +1760,40 @@ const [state, setState] = useState<AppState>({
 
                 return (
                   <div className="space-y-8">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                      {state.linkedA &&
-                        wageBlock('Person A', state.userA.paySchedule, a.wages, 'A')}
-                      {state.mode === 'joint' && state.userB && state.linkedB && b &&
-                        wageBlock('Person B', state.userB.paySchedule, b.wages, 'B')}
-                    </div>
+                    <div className="hidden"></div>
 
                     <div className="space-y-3">
-                      <p className="text-sm font-medium">Bills to include in forecast</p>
-                      <div className="rounded-md border overflow-hidden">
+                      <p className="text-sm font-medium">Include in forecast</p>
+                      <div className="flex items-center justify-end gap-2 text-sm mb-2">
+                        <span className="text-muted-foreground">Group by</span>
+                        <div className="inline-flex rounded-md border overflow-hidden">
+                          <button className={`px-2 py-1 ${billGroupBy==='month'?'bg-secondary':''}`} onClick={()=>setBillGroupBy('month')}>Month</button>
+                          <button className={`px-2 py-1 ${billGroupBy==='owner'?'bg-secondary':''}`} onClick={()=>setBillGroupBy('owner')}>Owner</button>
+                        </div>
+                      </div>
+                      {(() => {
+                        const rows = state.bills
+                          .filter(b => (b as any).source === 'detected' || String(b.id || '').startsWith('det-'))
+                          .map(b => ({
+                            id: b.id!,
+                            dateISO: (b as any).dueDate || (b as any).dueDateISO || (b.issueDate as any) || new Date().toISOString().slice(0,10),
+                            description: b.name,
+                            amount: b.amount,
+                            owner: ((b as any).owner ?? (String(b.id).startsWith('det-b') ? 'B' : 'A')) as 'A'|'B'|'JOINT',
+                            freq: b.dueDay ? 'monthly' : undefined,
+                          }));
+                        return (
+                          <BillsList
+                            rows={rows}
+                            initialSelected={new Set(state.includedBillIds)}
+                            onChangeSelected={(ids)=> setState(prev => ({ ...prev, includedBillIds: ids }))}
+                            onRename={(id, name)=> setState(prev => ({ ...prev, bills: prev.bills.map(b => b.id===id ? { ...b, name } : b) }))}
+                            onAmount={(id, amount)=> setState(prev => ({ ...prev, bills: prev.bills.map(b => b.id===id ? { ...b, amount } : b) }))}
+                            groupBy={billGroupBy}
+                          />
+                        );
+                      })()}
+                      <div className="rounded-md border overflow-hidden hidden">
                         <Table>
                           <TableHeader>
                             <TableRow>
@@ -1748,7 +1820,7 @@ const [state, setState] = useState<AppState>({
                                       }))}
                                     />
                                   </TableCell>
-                                  <TableCell className="text-sm">{b.dueDate}</TableCell>
+                <TableCell className="text-sm">{formatDate(b.dueDate)}</TableCell>
                                   <TableCell className="text-sm">
                                     {(b as any).owner ?? (String(b.id).startsWith('det-b') ? 'B' : 'A')}
                                   </TableCell>
@@ -1793,9 +1865,23 @@ const [state, setState] = useState<AppState>({
                       </div>
                     </div>
 
-                    <Button className="w-full" onClick={() => setState(prev => ({ ...prev, step: 'energy' }))}>
-                      Continue to Electricity
-                    </Button>
+                    {/* New virtualized list-driven CTA */}
+                    <div className="h-20" />
+                    <div className="sticky bottom-0 inset-x-0">
+                      <div className="safe-area-bottom bg-background/95 backdrop-blur border-t shadow-md px-4 py-3">
+                        {(() => {
+                          const rows = state.bills
+                            .filter(b => (b as any).source === 'detected' || String(b.id || '').startsWith('det-'))
+                            .map(b => b.id);
+                          const count = state.includedBillIds.filter(id => rows.includes(id)).length;
+                          return (
+                            <Button className="w-full" onClick={() => setState(prev => ({ ...prev, step: 'energy' }))}>
+                              Continue ({count} selected)
+                            </Button>
+                          );
+                        })()}
+                      </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -1809,7 +1895,7 @@ const [state, setState] = useState<AppState>({
               <p className="text-sm font-medium mb-2">Electricity prediction method</p>
               <div className="flex flex-wrap gap-4 text-sm">
                 {([
-                  { key: 'csv', label: 'Smart‑meter CSV + last bill' },
+                  { key: 'csv', label: 'Smart-meter CSV + last bill' },
                   { key: 'bills6', label: '6 consecutive bills' },
                   { key: 'billsSome', label: 'Some recent bills' },
                 ] as Array<{key: ElectricityMode; label: string}>).map(({ key, label }) => (
@@ -1824,9 +1910,19 @@ const [state, setState] = useState<AppState>({
                   </label>
                 ))}
               </div>
+              <div className="mt-4">
+                <ElectricityUpload onDone={({ readings, tariff }) => setState(prev => ({ ...prev, electricityReadings: readings as any, tariffRates: tariff || prev.tariffRates }))} />
+              </div>
             </div>
-            <EsbCsvUpload onReadingsLoaded={handleEnergyReadings} isLoading={state.isLoading} />
-            <LastBillUpload onTariffExtracted={handleTariffExtracted} isLoading={state.isLoading} />
+
+            <div className="h-20" />
+            <div className="sticky bottom-0 inset-x-0">
+              <div className="safe-area-bottom bg-background/95 backdrop-blur border-t shadow-md px-4 py-3">
+                <Button className="w-full" onClick={() => setState(prev => ({ ...prev, step: 'forecast' }))}>
+                  Continue to Forecast
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1839,15 +1935,101 @@ const [state, setState] = useState<AppState>({
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {(() => {
+                const todayISO = new Date().toISOString().slice(0,10);
+                const endISO = addMonthsClampISO(todayISO, 1);
+                // Prefer worker/store entries for precise upcoming items
+                const storeEntries = (usePlanStore.getState().result as any)?.entries as Array<{ dateISO?: string; date?: string; label: string; delta: number }> | undefined;
+                let upcoming: Array<{ dateISO: string; name: string; amount: number }> = [];
+                if (storeEntries && storeEntries.length) {
+                  upcoming = storeEntries
+                    .map(e => ({ dateISO: (e.dateISO || e.date || '').slice(0,10), name: e.label, amount: Math.abs(e.delta), delta: e.delta }))
+                    .filter(e => e.dateISO && e.dateISO >= todayISO && e.dateISO <= endISO && e.delta < 0)
+                    .sort((a,b)=>a.dateISO.localeCompare(b.dateISO))
+                    .slice(0,10)
+                    .map(e => ({ dateISO: e.dateISO, name: e.name || 'Bill', amount: e.amount }));
+                }
+                if (!upcoming.length || upcoming.length < 2) {
+                  // Fallback to bills if store entries not available
+                  const isIncluded = (b: Bill) => b.source === 'predicted-electricity' || state.includedBillIds.includes(b.id!);
+                  const nextDueForMonthly = (dueDay?: number): string | null => {
+                    if (!dueDay) return null;
+                    const [y,m] = todayISO.split('-').map(Number);
+                    const lastDayThisMonth = new Date(y, m, 0).getDate();
+                    const day = Math.min(dueDay, lastDayThisMonth);
+                    const thisMonth = `${y}-${String(m).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                    if (thisMonth >= todayISO) return thisMonth;
+                    return addMonthsClampISO(thisMonth, 1);
+                  };
+                  const nextDueForWeeklyLike = (anchorISO?: string, stepDays: number = 7, dayOfWeek?: number): string | null => {
+                    if (typeof dayOfWeek === 'number') {
+                      const d = new Date(todayISO + 'T00:00:00');
+                      while (d.getUTCDay() !== dayOfWeek) d.setUTCDate(d.getUTCDate() + 1);
+                      const iso = d.toISOString().slice(0,10);
+                      return iso <= endISO ? iso : null;
+                    }
+                    if (!anchorISO) return null;
+                    let cur = anchorISO;
+                    while (cur < todayISO) cur = addDaysISO(cur, stepDays);
+                    return cur <= endISO ? cur : null;
+                  };
+                  upcoming = (state.bills || [])
+                    .filter(b => isIncluded(b))
+                    .map(b => {
+                      const any: any = b as any;
+                      let dueISO: string | null = (b.dueDate || any.dueDateISO) || null;
+                      if (!dueISO) dueISO = nextDueForMonthly(any.dueDay);
+                      if (!dueISO && typeof any.dayOfWeek === 'number') dueISO = nextDueForWeeklyLike(undefined, 7, any.dayOfWeek);
+                      if (!dueISO && any.issueDate) dueISO = nextDueForWeeklyLike(any.issueDate, 14);
+                      return dueISO ? { dateISO: dueISO, name: b.name, amount: b.amount } : null;
+                    })
+                    .filter(Boolean)
+                    .map(x => x as { dateISO: string; name: string; amount: number })
+                    .filter(u => u.dateISO >= todayISO && u.dateISO <= endISO)
+                    .sort((a,b)=>a.dateISO.localeCompare(b.dateISO))
+                    .slice(0,10);
+                }
+                // Last-resort: roll-forward past bills to compute next occurrences
+                if (!upcoming.length || upcoming.length < 2) {
+                  try {
+                    const rolled = rollForwardPastBills(
+                      (state.bills || []).map(b => ({
+                        id: b.id || '',
+                        name: b.name,
+                        amount: b.amount,
+                        issueDate: (b.issueDate || (b as any).dueDateISO || b.dueDate || todayISO) as string,
+                        dueDate: (b.dueDate || (b as any).dueDateISO || todayISO) as string,
+                        source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as any,
+                        movable: b.movable,
+                      })),
+                      todayISO
+                    ).filter(b => !b.dueDate || (b.dueDate >= todayISO && b.dueDate <= endISO));
+                    const includedIds = new Set(state.includedBillIds);
+                    const rolledUpcoming = rolled
+                      .filter(b => b.source === 'predicted-electricity' || includedIds.has(b.id))
+                      .map(b => ({ dateISO: (b.dueDate || b.issueDate) as string, name: b.name, amount: b.amount }))
+                      .sort((a,b)=>a.dateISO.localeCompare(b.dateISO))
+                      .slice(0,10);
+                    if (rolledUpcoming.length) upcoming = rolledUpcoming;
+                  } catch {}
+                }
+                return (
+                  <ForecastForm
+                    mode={state.mode}
+                    weeklyA={state.weeklyAllowanceA}
+                    weeklyB={state.mode==='joint' ? state.weeklyAllowanceB : undefined}
+                    availableA={budgetPreview.availableA}
+                    availableB={budgetPreview.availableB}
+                    pots={state.pots}
+                    onChangeAllowance={(a,b)=> setState(prev=>({ ...prev, weeklyAllowanceA: a, weeklyAllowanceB: typeof b==='number'? b : prev.weeklyAllowanceB }))}
+                    onAddPot={(name, monthly, owner, target)=> handleAddPot(name, monthly, owner, target)}
+                    onUpdatePot={(id, patch)=> setState(prev => ({ ...prev, pots: prev.pots.map(p => p.id === id ? { ...p, ...patch } : p) }))}
+                    onRemovePot={(id)=> setState(prev => ({ ...prev, pots: prev.pots.filter(p => p.id !== id) }))}
+                    upcoming={upcoming}
+                  />
+                );
+              })()}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <p className="text-sm font-medium">Bank Bills</p>
-                  <Badge variant="secondary">
-                    {state.bills.filter(
-                      b => (b as any).source === 'detected' || String(b.id || '').startsWith('det-')
-                    ).length} selected
-                  </Badge>
-                </div>
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Predicted Electricity Bills</p>
                   <Badge variant="secondary">
@@ -1856,7 +2038,7 @@ const [state, setState] = useState<AppState>({
                 </div>
               </div>
 
-              <Card className="mb-4">
+              <Card className="mb-4 hidden">
                 <CardContent>
                   <h4 className="text-sm font-medium">Weekly Spending Allowance</h4>
                   {state.mode === 'joint' ? (
@@ -1895,7 +2077,7 @@ const [state, setState] = useState<AppState>({
                 </CardContent>
               </Card>
 
-              <Card className="mb-4">
+              <Card className="mb-4 hidden">
                 <CardContent>
                   <h4 className="text-sm font-medium mb-2">Savings Pots</h4>
                   {state.mode === 'joint' ? (
@@ -1992,7 +2174,7 @@ const [state, setState] = useState<AppState>({
                           <TableBody>
                             {elec.map((b) => (
                               <TableRow key={b.id}>
-                                <TableCell>{b.dueDate}</TableCell>
+            <TableCell>{formatDate(b.dueDate)}</TableCell>
                                 <TableCell className="truncate max-w-[220px]">{b.name}</TableCell>
                                 <TableCell className="text-right">{formatCurrency(b.amount)}</TableCell>
                               </TableRow>
@@ -2030,7 +2212,30 @@ const [state, setState] = useState<AppState>({
 
         {state.step === 'results' && state.forecastResult && (
           <div className="space-y-6">
-            <Card className="deposit-highlight">
+            {(() => {
+              const aPerPay = state.forecastResult!.depositA || 0;
+              const aPerMonth = aPerPay * cyclesPerMonth(state.userA.paySchedule?.frequency);
+              const bPerPay = typeof state.forecastResult!.depositB === 'number' ? (state.forecastResult!.depositB || 0) : undefined;
+              const bPerMonth = bPerPay && state.userB?.paySchedule ? bPerPay * cyclesPerMonth(state.userB.paySchedule.frequency) : undefined;
+              const minBal = state.forecastResult!.minBalance;
+              const t = [...state.forecastResult!.timeline].sort((a,b)=>a.date.localeCompare(b.date));
+              const minEntry = t.find(x => Math.abs(x.balance - minBal) < 0.01) || t[0];
+              return (
+                <ResultsHero
+                  aPerPay={aPerPay}
+                  aPerMonth={aPerMonth}
+                  aStart={(usePlanStore.getState().result as any)?.startISO || t[0]?.date || new Date().toISOString().slice(0,10)}
+                  bPerPay={bPerPay}
+                  bPerMonth={bPerMonth}
+                  bStart={(usePlanStore.getState().result as any)?.startISO || t[0]?.date || new Date().toISOString().slice(0,10)}
+                  fairness={inputs?.fairnessRatio as any}
+                  minBalance={minBal}
+                  minDate={minEntry?.date || new Date().toISOString().slice(0,10)}
+                  startISO={(usePlanStore.getState().result as any)?.startISO}
+                />
+              );
+            })()}
+            <Card className="deposit-highlight hidden">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <PiggyBank className="w-6 h-6" />
@@ -2205,7 +2410,7 @@ const [state, setState] = useState<AppState>({
                         <TabsContent value="transactions" className="space-y-4">
                           <div>
                             <div className="flex items-center justify-between mb-2">
-                              <p className="text-sm font-medium">{selectedDate ? `Transactions on ${selectedDate}` : 'Transactions'}</p>
+          <p className="text-sm font-medium">{selectedDate ? `Transactions on ${formatDate(selectedDate)}` : 'Transactions'}</p>
                               <Button size="sm" onClick={() => setBillDialogOpen(true)} disabled={!selectedDate}>Add New Bill</Button>
                             </div>
                             {selectedDate ? (
@@ -2236,7 +2441,7 @@ const [state, setState] = useState<AppState>({
                                   })}
                                 </ul>
                               ) : (
-                                <p className="text-sm text-muted-foreground">No transactions on {selectedDate}.</p>
+          <p className="text-sm text-muted-foreground">No transactions on {formatDate(selectedDate)}.</p>
                               )
                             ) : (
                               <p className="text-sm text-muted-foreground">Pick a date to view transactions.</p>
@@ -2815,6 +3020,17 @@ const [state, setState] = useState<AppState>({
             >
               Start New Forecast
             </Button>
+            <div className="h-16" />
+            <StickySummaryBar
+              aLabel={state.mode === 'joint' ? `A ${formatCurrency(state.forecastResult.depositA)}` : undefined}
+              bLabel={state.mode === 'joint' && typeof state.forecastResult.depositB === 'number' ? `B ${formatCurrency(state.forecastResult.depositB!)}` : undefined}
+              minLabel={`Min ${formatCurrency(state.forecastResult.minBalance)}`}
+              cta="Set up standing orders"
+              onCta={() => {
+                track('standing_orders_exported');
+                announce('Standing order setup opened');
+              }}
+            />
           </div>
         )}
       </div>
@@ -2954,4 +3170,5 @@ const [state, setState] = useState<AppState>({
 };
 
 export default Index;
+
 

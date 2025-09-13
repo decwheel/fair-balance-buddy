@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { formatCurrency } from '@/utils/dateUtils';
+import { formatCurrency, formatDate } from '@/utils/dateUtils';
 
 type Suggestion = {
   billId: string;
@@ -109,17 +109,24 @@ export function BillDateWizard({
               </thead>
               <tbody>
                 {(suggestions || []).map((s) => (
-                  <tr key={s.billId} className="border-t">
+                  <tr
+                    key={s.billId}
+                    className="border-t h-11 cursor-pointer hover:bg-muted/40"
+                    role="checkbox"
+                    aria-checked={!!selected[s.billId]}
+                    onClick={() => setSelected(prev => ({ ...prev, [s.billId]: !prev[s.billId] }))}
+                  >
                     <td className="p-2">
                       <Checkbox
                         checked={!!selected[s.billId]}
+                        onClick={(e) => e.stopPropagation()}
                         onCheckedChange={(v) => setSelected(prev => ({ ...prev, [s.billId]: !!v }))}
                       />
                     </td>
                     <td className="p-2 whitespace-nowrap max-w-[10rem] truncate" title={s.name || s.billId}>{s.name || s.billId}</td>
-                    <td className="p-2">{typeof s.amount === 'number' ? formatCurrency(s.amount) : '—'}</td>
-                    <td className="p-2">{s.currentDate}</td>
-                    <td className="p-2 font-medium">{s.suggestedDate}</td>
+                    <td className="p-2">{typeof s.amount === 'number' ? formatCurrency(s.amount) : '-'}</td>
+                    <td className="p-2">{formatDate(s.currentDate)}</td>
+                    <td className="p-2 font-medium">{formatDate(s.suggestedDate)}</td>
                   </tr>
                 ))}
               </tbody>

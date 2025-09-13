@@ -13,7 +13,7 @@ interface EsbCsvUploadProps {
   isLoading?: boolean;
 }
 
-export function EsbCsvUpload({ onReadingsLoaded, isLoading = false }: EsbCsvUploadProps) {
+export function EsbCsvUpload({ onReadingsLoaded, isLoading = false, compact = false }: EsbCsvUploadProps & { compact?: boolean }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadResult, setUploadResult] = useState<{
@@ -143,7 +143,7 @@ export function EsbCsvUpload({ onReadingsLoaded, isLoading = false }: EsbCsvUplo
           </div>
         )}
 
-        {uploadResult && (
+        {uploadResult && !compact && (
           <div className="space-y-4">
             <Alert className={uploadResult.success ? 'border-success' : 'border-destructive'}>
               <div className="flex items-center gap-2">

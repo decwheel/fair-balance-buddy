@@ -23,10 +23,10 @@ const buttonVariants = cva(
         warning: "bg-warning text-warning-foreground shadow-sm hover:bg-warning/90",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        default: "h-11 px-4 py-2", // 44px minimum touch target
+        sm: "h-11 rounded-md px-3", // keep at least 44px
+        lg: "h-12 rounded-md px-8",
+        icon: "h-11 w-11",
       },
     },
     defaultVariants: {
