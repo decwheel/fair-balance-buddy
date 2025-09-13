@@ -8,6 +8,8 @@ import { normalizeMerchant } from '@/lib/normalizeMerchant';
 import { Pencil } from 'lucide-react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { track } from '@/lib/analytics';
+import { useAnnounce } from '@/components/accessibility/LiveAnnouncer';
+import { toast } from 'sonner';
 
 type BillRow = {
   id: string;
@@ -42,8 +44,8 @@ export function BillsList({
   groupBy?: 'month' | 'owner';
   onChangeGroupBy?: (g: 'month' | 'owner') => void;
 }) {
-  // Groups are always expanded; we removed the collapse toggle for simplicity
-  const [openMonths] = useState<Record<string, boolean>>({});
+  const { announce } = useAnnounce();
+  const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set(initialSelected));
   const [filters, setFilters] = useState({ owner: 'ALL' as 'ALL'|'A'|'B', hideSmall: true, showLow: false });
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -75,8 +77,21 @@ export function BillsList({
     });
   }, [rows, filters, groupBy]);
 
-  const toggleMonth = (_key: string) => {
-    // no-op (collapse removed)
+  const categoryClasses = (cat?: string) => {
+    const key = (cat || '').toLowerCase();
+    if (key === 'subscriptions') return 'bg-purple-100 text-purple-700';
+    if (key === 'utilities') return 'bg-blue-100 text-blue-700';
+    if (key === 'groceries') return 'bg-green-100 text-green-700';
+    if (key === 'telecoms') return 'bg-sky-100 text-sky-700';
+    if (key === 'insurance') return 'bg-amber-100 text-amber-700';
+    if (key === 'rent') return 'bg-rose-100 text-rose-700';
+    if (key === 'loan' || key === 'loans') return 'bg-orange-100 text-orange-700';
+    return 'bg-muted/60 text-foreground';
+  };
+
+  const toggleMonth = (key: string) => {
+    setOpenMonths(prev => ({ ...prev, [key]: !prev[key] }));
+    track('bills_group_toggle', { month: key });
   };
 
   const selectAllInView = () => {
@@ -93,7 +108,7 @@ export function BillsList({
     track('bulk_action_apply', { action: 'clear_all' });
   };
 
-  const Row = (r: BillRow) => {
+  const Row = (r: BillRow, index?: number) => {
     const n = normalizeMerchant(r.description);
     const checked = selected.has(r.id);
     const [editing, setEditing] = useState(false);
@@ -135,19 +150,21 @@ export function BillsList({
 
     return (
       <div
-        className={"w-full px-2 py-2 cursor-pointer hover:bg-muted/40 border-l-2 " + (lowConf ? 'border-amber-300 border-dotted' : 'border-transparent')}
+        className={(index !== undefined && index % 2 === 0 ? 'bg-muted/20 ' : '') + 'hover:bg-muted/40 w-full cursor-pointer border-l-2 ' + (lowConf ? 'border-amber-300 border-dotted ' : 'border-transparent ')}
         role="checkbox" aria-checked={checked}
-        onClick={() => { const next = new Set(selected); checked ? next.delete(r.id) : next.add(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); }}
+        onClick={() => { const next = new Set(selected); checked ? next.delete(r.id) : next.add(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); announce(`Selected ${name}, ${amountStr}`); toast.message(`${next.size} selected`, { duration: 1200 }); }}
       >
-        {/* Line 1 */}
-        <div className="flex items-start gap-2">
-          <div className="pt-0.5">
-            <Checkbox checked={checked} onClick={(e)=>e.stopPropagation()} onCheckedChange={(v)=>{ const next = new Set(selected); v? next.add(r.id) : next.delete(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); }} />
+        <div className="grid grid-cols-[24px,1fr,auto] sm:grid-cols-[24px,1fr,auto,auto,auto,96px] gap-x-2 sm:gap-x-3 py-3 px-2 items-center sm:grid-rows-1 grid-rows-2">
+          <div className="row-start-1 row-end-2 sm:row-auto">
+            <Checkbox checked={checked} onClick={(e)=>e.stopPropagation()} onCheckedChange={(v)=>{ const next = new Set(selected); v? next.add(r.id) : next.delete(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); toast.message(`${next.size} selected`, { duration: 1200 }); }} />
           </div>
-          <div className="flex-1 min-w-0" onClick={(e)=>e.stopPropagation()}>
+          <div className="min-w-0 col-start-2 col-end-2 row-start-1 row-end-1 sm:row-auto" onClick={(e)=>e.stopPropagation()}>
             {!editing ? (
               <div className="flex items-center gap-2">
-                <span className="font-medium text-sm sm:text-base truncate">{name}</span>
+                <span className="font-medium text-sm sm:text-base truncate flex-1">{name}</span>
+                {n.category && (
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full shrink-0 ${categoryClasses(n.category)}`}>{n.category}</span>
+                )}
                 <button aria-label={`Edit ${name}`} className="text-muted-foreground shrink-0 h-8 w-8 inline-flex items-center justify-center" onClick={()=>setEditing(true)}>
                   <Pencil className="w-4 h-4" />
                 </button>
@@ -159,26 +176,22 @@ export function BillsList({
               </div>
             )}
           </div>
-          <div className="shrink-0 text-right font-semibold tabular-nums whitespace-nowrap" onClick={(e)=>e.stopPropagation()}>
+          <div className="col-start-3 col-end-4 sm:col-start-6 sm:col-end-7 row-start-1 row-end-3 sm:row-auto justify-self-end font-semibold tabular-nums whitespace-nowrap" onClick={(e)=>e.stopPropagation()}>
             {!editing ? (
               <span>{amountStr}</span>
             ) : (
               <input className="h-8 w-20 border rounded-md px-2 text-sm text-right" value={amt} onChange={(e)=>setAmt(e.target.value)} onBlur={()=> onAmount?.(r.id, Math.abs(parseFloat(amt)) || 0)} />
             )}
           </div>
-        </div>
-        {/* Line 2 (meta chips) */}
-        <div className="flex flex-nowrap items-center gap-1 mt-1 overflow-hidden min-w-0">
-          {freqChip && (
-            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{freqChip}</span>
-          )}
-          {dayChip && (
-            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{dayChip}</span>
-          )}
-          <span className="text-[10px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{r.owner}</span>
-          {lowConf && (
-            <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0" aria-hidden="true">Low conf.</span>
-          )}
+          <div className="hidden sm:block sm:col-start-3 sm:col-end-4">{freqChip && (<span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full">{freqChip}</span>)}</div>
+          <div className="hidden sm:block sm:col-start-4 sm:col-end-5">{dayChip && (<span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full">{dayChip}</span>)}</div>
+          <div className="hidden sm:block sm:col-start-5 sm:col-end-6"><span className="text-[10px] bg-muted/60 px-2 py-0.5 rounded-full">{r.owner}</span></div>
+          <div className="sm:hidden col-start-2 col-end-3 row-start-2 row-end-3 flex items-center gap-1 min-w-0 overflow-hidden">
+            {freqChip && (<span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full truncate">{freqChip}</span>)}
+            {dayChip && (<span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full truncate max-[330px]:hidden">{dayChip}</span>)}
+            <span className="text-[10px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{r.owner}</span>
+            {lowConf && (<span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0" aria-hidden="true">Low conf.</span>)}
+          </div>
         </div>
       </div>
     );
@@ -218,16 +231,18 @@ export function BillsList({
         const open = openMonths[g.key] !== false; // default open
         return (
           <div key={g.key} className="border rounded-xl overflow-hidden">
-            <div className="sticky top-0 z-10 w-full flex items-center justify-between p-3 bg-muted/40">
+            <button className="sticky top-0 z-10 w-full flex items-center justify-between p-3 bg-muted/40 text-left" onClick={()=>toggleMonth(g.key)} aria-expanded={open}>
               <div className="font-medium">{g.label}</div>
               <div className="text-sm">Subtotal {g.subtotal.toFixed(2)}</div>
-            </div>
-            <VirtualList
-              items={g.rows}
-              itemHeight={64}
-              className="max-h-80 overflow-auto"
-              render={(row) => <Row {...row} />}
-            />
+            </button>
+            {open && (
+              <VirtualList
+                items={g.rows}
+                itemHeight={68}
+                className="max-h-80 overflow-auto"
+                render={(row, idx) => <Row {...row} index={idx} /> as any}
+              />
+            )}
           </div>
         );
       })}
