@@ -17,6 +17,7 @@ export function LinkBankTiles({
   summaryB,
   onLink,
   pulseB,
+  showB = true,
 }: {
   linkedA: boolean;
   linkedB: boolean;
@@ -26,6 +27,7 @@ export function LinkBankTiles({
   summaryB?: { perOcc?: number; unit?: string; needsConfirm?: boolean; stale?: boolean; lastDate?: string };
   onLink: (p: Person) => void;
   pulseB?: boolean;
+  showB?: boolean;
 }) {
   const A = useMemo(() => ({ linked: linkedA, bank: bankA, summary: summaryA }), [linkedA, bankA, summaryA]);
   const B = useMemo(() => ({ linked: linkedB, bank: bankB, summary: summaryB }), [linkedB, bankB, summaryB]);
@@ -39,9 +41,9 @@ export function LinkBankTiles({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+      <div className={cn('grid gap-3 sm:gap-4', showB ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1') }>
         <Tile person="A" data={A} onLink={onLink} pulse={false} />
-        <Tile person="B" data={B} onLink={onLink} pulse={!!pulseB} />
+        {showB && <Tile person="B" data={B} onLink={onLink} pulse={!!pulseB} />}
       </div>
     </div>
   );

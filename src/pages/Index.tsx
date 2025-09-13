@@ -1490,8 +1490,8 @@ const Index = () => {
                   disabled={state.isLoading}
                 >
                   <Users className="w-6 h-6" />
-                  <span className="font-medium">Couple</span>
-                  <span className="text-xs text-muted-foreground">Couple's forecasting</span>
+                  <span className="font-medium">Household</span>
+                  <span className="text-xs text-muted-foreground">Household forecasting</span>
                 </Button>
               </div>
 
@@ -1626,6 +1626,7 @@ const Index = () => {
                     }
                   }}
                   pulseB={state.linkedA && !state.linkedB}
+                  showB={state.mode === 'joint'}
                 />
 
                 {/* Live mode: small bank chooser inputs under tiles */}
@@ -3046,6 +3047,13 @@ const Index = () => {
           ? ((detected?.salaries && detected.salaries.length) ? detected.salaries as any : (pay ? [{ amount: pay.averageAmount ?? 0, freq: (pay.frequency === 'WEEKLY' ? 'weekly' : pay.frequency === 'FORTNIGHTLY' || pay.frequency === 'BIWEEKLY' ? 'fortnightly' : pay.frequency === 'FOUR_WEEKLY' ? 'four_weekly' : 'monthly') as any, description: 'Detected salary', firstSeen: pay.anchorDate }] : []))
           : (((detected as any)?.salariesB && (detected as any).salariesB.length) ? (detected as any).salariesB as any : (pay ? [{ amount: pay.averageAmount ?? 0, freq: (pay.frequency === 'WEEKLY' ? 'weekly' : pay.frequency === 'FORTNIGHTLY' || pay.frequency === 'BIWEEKLY' ? 'fortnightly' : pay.frequency === 'FOUR_WEEKLY' ? 'four_weekly' : 'monthly') as any, description: 'Detected salary', firstSeen: pay.anchorDate }] : []));
         const confirmed = who === 'A' ? state.wageConfirmedA : !!state.wageConfirmedB;
+        const lastPaidISO = (() => {
+          try {
+            const cat = who === 'A' ? categorizeBankTransactions(state.userA.transactions) : categorizeBankTransactions(state.userB?.transactions || []);
+            const wages = cat.wages || [];
+            return wages.length ? [...wages].map(w=>w.date).sort().slice(-1)[0] : undefined;
+          } catch { return undefined; }
+        })();
         return (
           <WagesBottomSheet
             open={!!openSheetFor}
@@ -3055,6 +3063,7 @@ const Index = () => {
             person={who}
             salaries={salaries}
             nextPayISO={next}
+            lastPaidISO={lastPaidISO}
             confirmed={confirmed}
             onConfirm={() => {
               if (who === 'A') setState(prev => ({ ...prev, wageConfirmedA: true }));
@@ -3066,7 +3075,30 @@ const Index = () => {
               const isDoneB = state.mode === 'joint' ? (who === 'B' ? true : !!state.wageConfirmedB) : true;
               if (isDoneA && isDoneB) track('link_flow_completed');
             }}
-            onEdit={() => { /* handled in component via analytics */ }}
+            onEdit={(edited) => {
+              try {
+                const cur: any = usePlanStore.getState().detected || {};
+                if (who === 'A') {
+                  const next = {
+                    salaries: [edited, ...(cur.salaries || []).slice(1)],
+                    recurring: cur.recurring || [],
+                    salariesB: cur.salariesB || [],
+                    recurringB: cur.recurringB || [],
+                  };
+                  usePlanStore.getState().setDetected(next);
+                } else {
+                  const next = {
+                    salaries: cur.salaries || [],
+                    recurring: cur.recurring || [],
+                    salariesB: [edited, ...(cur.salariesB || []).slice(1)],
+                    recurringB: cur.recurringB || [],
+                  };
+                  usePlanStore.getState().setDetected(next);
+                }
+              } catch (e) {
+                console.warn('Failed to persist edited wages', e);
+              }
+            }}
           />
         );
       })()}
