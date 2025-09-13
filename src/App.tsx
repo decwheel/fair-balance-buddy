@@ -19,6 +19,8 @@ import { addDaysISO, nextBusinessDay } from "./utils/dateUtils";
 // ✅ Vite worker import – gives you a Worker constructor
 import SimWorker from "./workers/simWorker.ts?worker";
 import { expandRecurring } from "./lib/expandRecurring";
+import { ThemeProvider } from "next-themes";
+import { ThemeToggle } from "./components/ThemeToggle";
 
 const queryClient = new QueryClient();
 
@@ -318,20 +320,24 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <LiveAnnouncer>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-              <Route path="/bank-callback" element={<BankCallback />} />
-            </Routes>
-          </BrowserRouter>
-        </LiveAnnouncer>
-      </TooltipProvider>
+      <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <LiveAnnouncer>
+            {/* Tiny theme toggle chip in top-left */}
+            <ThemeToggle />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+                <Route path="/bank-callback" element={<BankCallback />} />
+              </Routes>
+            </BrowserRouter>
+          </LiveAnnouncer>
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
