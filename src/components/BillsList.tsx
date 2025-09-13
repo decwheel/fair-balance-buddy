@@ -42,7 +42,8 @@ export function BillsList({
   groupBy?: 'month' | 'owner';
   onChangeGroupBy?: (g: 'month' | 'owner') => void;
 }) {
-  const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
+  // Groups are always expanded; we removed the collapse toggle for simplicity
+  const [openMonths] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set(initialSelected));
   const [filters, setFilters] = useState({ owner: 'ALL' as 'ALL'|'A'|'B', hideSmall: true, showLow: false });
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -74,9 +75,8 @@ export function BillsList({
     });
   }, [rows, filters, groupBy]);
 
-  const toggleMonth = (key: string) => {
-    setOpenMonths(prev => ({ ...prev, [key]: !prev[key] }));
-    track('bills_group_toggle', { month: key });
+  const toggleMonth = (_key: string) => {
+    // no-op (collapse removed)
   };
 
   const selectAllInView = () => {
@@ -109,17 +109,28 @@ export function BillsList({
     const freqChip = (() => {
       if (!r.freq) return '';
       const f = r.freq.toLowerCase();
-      if (f === 'monthly') return r.dueDay ? `monthly · day ${r.dueDay}` : 'monthly';
+      if (f === 'monthly') return 'monthly';
       if (f === 'fortnightly') {
-        const dow = typeof r.dayOfWeek === 'number' ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][r.dayOfWeek] : undefined;
-        return dow ? `fortnightly · ${dow}` : 'fortnightly';
+        return 'fortnightly';
       }
       if (f === 'weekly') {
-        const dow = typeof r.dayOfWeek === 'number' ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][r.dayOfWeek] : undefined;
-        return dow ? `weekly · ${dow}` : 'weekly';
+        return 'weekly';
       }
       if (f === 'four_weekly') return '4 weeks';
       return r.freq;
+    })();
+    const dayChip = (() => {
+      // For monthly: use ordinal dueDay (e.g., 14th). For weekly/fortnightly: use weekday abbrev.
+      const ord = (n: number) => {
+        const s = ['th','st','nd','rd'];
+        const v = n % 100; const suffix = s[(v-20)%10] || s[v] || s[0];
+        return `${n}${suffix}`;
+      };
+      const f = (r.freq || '').toLowerCase();
+      if (f === 'monthly' && typeof r.dueDay === 'number') return ord(r.dueDay);
+      if ((f === 'weekly' || f === 'fortnightly') && typeof r.dayOfWeek === 'number') return ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][r.dayOfWeek];
+      if (typeof r.dueDay === 'number') return ord(r.dueDay);
+      return '';
     })();
 
     return (
@@ -157,15 +168,14 @@ export function BillsList({
           </div>
         </div>
         {/* Line 2 (meta chips) */}
-        <div className="flex flex-nowrap items-center gap-1 mt-1 overflow-hidden">
-          <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{formatDate(r.dateISO)}</span>
-          <span className="text-[10px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{r.owner}</span>
+        <div className="flex flex-nowrap items-center gap-1 mt-1 overflow-hidden min-w-0">
           {freqChip && (
-            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full min-w-0 truncate">{freqChip}</span>
+            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{freqChip}</span>
           )}
-          {n.category && (
-            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full min-w-0 truncate">{n.category}</span>
+          {dayChip && (
+            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{dayChip}</span>
           )}
+          <span className="text-[10px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{r.owner}</span>
           {lowConf && (
             <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0" aria-hidden="true">Low conf.</span>
           )}
@@ -186,7 +196,7 @@ export function BillsList({
     <div className="space-y-3">
       {/* Toolbar: Group by + Bulk */}
       <div className="flex items-center justify-between gap-2 text-sm">
-        <div className="inline-flex items-center gap-2">
+        <div className="inline-flex items-center gap-3 flex-wrap">
           <span className="text-muted-foreground">Group by:</span>
           <div className="inline-flex rounded-md border overflow-hidden">
             <button className={`px-3 py-1.5 ${groupBy==='month'?'bg-secondary':''}`} onClick={()=>onChangeGroupBy?.('month')}>Month</button>
@@ -208,23 +218,16 @@ export function BillsList({
         const open = openMonths[g.key] !== false; // default open
         return (
           <div key={g.key} className="border rounded-xl overflow-hidden">
-            <div className="sticky top-0 z-10">
-              <button className="w-full flex items-center justify-between p-3 bg-muted/40" onClick={()=>toggleMonth(g.key)}>
-                <div className="font-medium">{g.label}</div>
-                <div className="text-sm flex items-center gap-3">
-                  <span>Subtotal {g.subtotal.toFixed(2)}</span>
-                  <span className="text-xs underline">{open ? 'Hide items' : 'Show items'}</span>
-                </div>
-              </button>
+            <div className="sticky top-0 z-10 w-full flex items-center justify-between p-3 bg-muted/40">
+              <div className="font-medium">{g.label}</div>
+              <div className="text-sm">Subtotal {g.subtotal.toFixed(2)}</div>
             </div>
-            {open && (
-              <VirtualList
-                items={g.rows}
-                itemHeight={64}
-                className="max-h-80 overflow-auto"
-                render={(row) => <Row {...row} />}
-              />
-            )}
+            <VirtualList
+              items={g.rows}
+              itemHeight={64}
+              className="max-h-80 overflow-auto"
+              render={(row) => <Row {...row} />}
+            />
           </div>
         );
       })}
