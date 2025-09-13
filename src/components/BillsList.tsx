@@ -88,12 +88,12 @@ export function BillsList({
     const [amt, setAmt] = useState(Math.abs(r.amount).toFixed(2));
     return (
       <div
-        className="grid grid-cols-[1.5rem,7rem,1fr,5rem,6rem] items-center h-11 px-2 cursor-pointer hover:bg-muted/40"
+        className="grid md:grid-cols-[1.5rem,7rem,1fr,5rem,6rem] grid-cols-[1.5rem,1fr,auto] gap-x-2 items-center min-h-[44px] md:h-11 px-2 py-2 md:py-0 cursor-pointer hover:bg-muted/40"
         role="checkbox" aria-checked={checked}
         onClick={() => { const next = new Set(selected); checked ? next.delete(r.id) : next.add(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); }}
       >
         <Checkbox checked={checked} onClick={(e)=>e.stopPropagation()} onCheckedChange={(v)=>{ const next = new Set(selected); v? next.add(r.id) : next.delete(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); }} />
-        <div className="font-semibold tabular-nums">{formatDate(r.dateISO)}</div>
+        <div className="hidden md:block font-semibold tabular-nums">{formatDate(r.dateISO)}</div>
         <div className="min-w-0" onClick={(e)=>e.stopPropagation()}>
           {!editing ? (
             <div className="truncate inline-flex items-center gap-2">
@@ -105,19 +105,20 @@ export function BillsList({
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <input className="h-8 w-40 border rounded-md px-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
+              <input className="h-8 w-36 sm:w-40 border rounded-md px-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
               <button className="text-xs underline" onClick={()=>{ setEditing(false); onRename?.(r.id, name.trim()); }}>Save</button>
             </div>
           )}
+          <div className="md:hidden text-[11px] text-muted-foreground mt-0.5">{formatDate(r.dateISO)} • {r.owner}</div>
         </div>
-        <div className="text-center" onClick={(e)=>e.stopPropagation()}>
+        <div className="hidden md:flex text-center items-center justify-center" onClick={(e)=>e.stopPropagation()}>
           <Badge variant="outline" className="rounded-full text-[10px] mx-auto">{r.owner}</Badge>
         </div>
         <div className="text-right font-medium flex items-center justify-end gap-2" onClick={(e)=>e.stopPropagation()}>
           {!editing ? (
             <span>{Math.abs(parseFloat(amt)).toFixed(2)}</span>
           ) : (
-            <input className="h-8 w-20 border rounded-md px-2 text-sm text-right" value={amt} onChange={(e)=>setAmt(e.target.value)} onBlur={()=> onAmount?.(r.id, Math.abs(parseFloat(amt)) || 0)} />
+            <input className="h-8 w-16 sm:w-20 border rounded-md px-2 text-sm text-right" value={amt} onChange={(e)=>setAmt(e.target.value)} onBlur={()=> onAmount?.(r.id, Math.abs(parseFloat(amt)) || 0)} />
           )}
         </div>
       </div>
@@ -134,7 +135,7 @@ export function BillsList({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
         <button className="underline" onClick={()=>{
           const allIds = groups.flatMap(g=>g.rows.map(r=>r.id));
           const next = new Set(selected);

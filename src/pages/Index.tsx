@@ -1764,7 +1764,7 @@ const [state, setState] = useState<AppState>({
 
                     <div className="space-y-3">
                       <p className="text-sm font-medium">Include in forecast</p>
-                      <div className="flex items-center justify-end gap-2 text-sm mb-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm mb-2">
                         <span className="text-muted-foreground">Group by</span>
                         <div className="inline-flex rounded-md border overflow-hidden">
                           <button className={`px-2 py-1 ${billGroupBy==='month'?'bg-secondary':''}`} onClick={()=>setBillGroupBy('month')}>Month</button>

@@ -28,11 +28,10 @@ export function WagesCard({ person, salaries, onEdit, onConfirm, confirmed, next
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          Person {person}
+        <CardTitle className="flex flex-wrap items-center gap-2">
+          <span>Person {person}</span>
           <Badge variant="secondary" className="rounded-full">{(top?.freq || 'monthly').toUpperCase()}</Badge>
           <Badge variant="outline" className="rounded-full">{formatDate(lastSeenISO || new Date().toISOString().slice(0,10))}</Badge>
-          {stale && <Badge variant="outline" className="rounded-full text-warning border-warning">Check salary</Badge>}
           {confirmed && <Badge variant="secondary" className="rounded-full">Confirmed</Badge>}
         </CardTitle>
         <CardDescription>{currency(amount)} / {perLabel}</CardDescription>
@@ -44,14 +43,14 @@ export function WagesCard({ person, salaries, onEdit, onConfirm, confirmed, next
         {!editing ? (
           <Button variant="link" className="px-0" onClick={()=>setEditing(true)}>Change</Button>
         ) : (
-          <div className="flex items-center gap-2">
-            <select className="border rounded-md h-11 px-2" value={freq} onChange={e=>setFreq(e.target.value as PayFrequency)}>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="border rounded-md h-11 px-2 w-full sm:w-auto" value={freq} onChange={e=>setFreq(e.target.value as PayFrequency)}>
               <option value="weekly">WEEKLY</option>
               <option value="fortnightly">FORTNIGHTLY</option>
               <option value="four_weekly">FOUR_WEEKLY</option>
               <option value="monthly">MONTHLY</option>
             </select>
-            <input className="border rounded-md h-11 px-2 w-32" type="number" value={amount} onChange={e=>setAmount(parseFloat(e.target.value)||0)} />
+            <input className="border rounded-md h-11 px-2 w-full sm:w-32" type="number" value={amount} onChange={e=>setAmount(parseFloat(e.target.value)||0)} />
             <Button onClick={()=>{ onEdit?.({ amount, freq, description: top?.description || 'Salary', firstSeen: lastSeenISO || new Date().toISOString().slice(0,10) }); setEditing(false); }}>Save</Button>
           </div>
         )}
