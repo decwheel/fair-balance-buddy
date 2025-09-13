@@ -1757,24 +1757,26 @@ const Index = () => {
 
                     <div className="space-y-3">
                       <p className="text-sm font-medium">Include in forecast</p>
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-sm mb-2">
-                        <span className="text-muted-foreground">Group by</span>
-                        <div className="inline-flex rounded-md border overflow-hidden">
-                          <button className={`px-2 py-1 ${billGroupBy==='month'?'bg-secondary':''}`} onClick={()=>setBillGroupBy('month')}>Month</button>
-                          <button className={`px-2 py-1 ${billGroupBy==='owner'?'bg-secondary':''}`} onClick={()=>setBillGroupBy('owner')}>Owner</button>
-                        </div>
-                      </div>
+                      
                       {(() => {
                         const rows = state.bills
                           .filter(b => (b as any).source === 'detected' || String(b.id || '').startsWith('det-'))
-                          .map(b => ({
-                            id: b.id!,
-                            dateISO: (b as any).dueDate || (b as any).dueDateISO || (b.issueDate as any) || new Date().toISOString().slice(0,10),
-                            description: b.name,
-                            amount: b.amount,
-                            owner: ((b as any).owner ?? (String(b.id).startsWith('det-b') ? 'B' : 'A')) as 'A'|'B'|'JOINT',
-                            freq: b.dueDay ? 'monthly' : undefined,
-                          }));
+                          .map(b => {
+                            const meta = (recurringMeta as any)[b.id!];
+                            const dayOfWeek = meta?.dayOfWeek as number | undefined;
+                            const dueDay = meta?.dueDay as number | undefined;
+                            const freq = meta?.freq ? String(meta.freq).toLowerCase() : (b.dueDay ? 'monthly' : undefined);
+                            return ({
+                              id: b.id!,
+                              dateISO: (b as any).dueDate || (b as any).dueDateISO || (b.issueDate as any) || new Date().toISOString().slice(0,10),
+                              description: b.name,
+                              amount: b.amount,
+                              owner: ((b as any).owner ?? (String(b.id).startsWith('det-b') ? 'B' : 'A')) as 'A'|'B'|'JOINT',
+                              freq,
+                              dueDay,
+                              dayOfWeek,
+                            });
+                          });
                         return (
                           <BillsList
                             rows={rows}
@@ -1783,6 +1785,7 @@ const Index = () => {
                             onRename={(id, name)=> setState(prev => ({ ...prev, bills: prev.bills.map(b => b.id===id ? { ...b, name } : b) }))}
                             onAmount={(id, amount)=> setState(prev => ({ ...prev, bills: prev.bills.map(b => b.id===id ? { ...b, amount } : b) }))}
                             groupBy={billGroupBy}
+                            onChangeGroupBy={(g)=> setBillGroupBy(g)}
                           />
                         );
                       })()}

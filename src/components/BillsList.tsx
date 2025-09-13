@@ -6,7 +6,7 @@ import { VirtualList } from '@/components/VirtualList';
 import { formatDate } from '@/utils/dateUtils';
 import { normalizeMerchant } from '@/lib/normalizeMerchant';
 import { Pencil } from 'lucide-react';
-import { recurrenceConfidence } from '@/lib/recurrenceConfidence';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { track } from '@/lib/analytics';
 
 type BillRow = {
@@ -16,6 +16,9 @@ type BillRow = {
   amount: number;
   owner: 'A' | 'B' | 'JOINT';
   freq?: string; // monthly, weekly, etc
+  dueDay?: number; // for monthly
+  dayOfWeek?: number; // for weekly-like
+  lowConfidence?: boolean;
 };
 
 type MonthGroup = { key: string; label: string; subtotal: number; rows: BillRow[] };
@@ -28,6 +31,7 @@ export function BillsList({
   onRename,
   onAmount,
   groupBy = 'month',
+  onChangeGroupBy,
 }: {
   rows: BillRow[];
   isLoading?: boolean;
@@ -36,16 +40,20 @@ export function BillsList({
   onRename?: (id: string, name: string) => void;
   onAmount?: (id: string, amount: number) => void;
   groupBy?: 'month' | 'owner';
+  onChangeGroupBy?: (g: 'month' | 'owner') => void;
 }) {
   const [openMonths, setOpenMonths] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set(initialSelected));
   const [filters, setFilters] = useState({ owner: 'ALL' as 'ALL'|'A'|'B', hideSmall: true, showLow: false });
+  const [bulkOpen, setBulkOpen] = useState(false);
 
   const groups = useMemo<MonthGroup[]>(() => {
     const acc: Record<string, BillRow[]> = {};
     for (const r of rows) {
       if (filters.owner !== 'ALL' && r.owner !== filters.owner) continue;
       if (filters.hideSmall && Math.abs(r.amount) < 2) continue;
+      const lowConf = !r.freq; // heuristic: no frequency info => low confidence
+      if (!filters.showLow && lowConf) continue;
       const key = groupBy === 'owner' ? r.owner : r.dateISO.slice(0,7);
       acc[key] ||= [];
       acc[key].push(r);
@@ -71,13 +79,18 @@ export function BillsList({
     track('bills_group_toggle', { month: key });
   };
 
-  const setAllOwner = (owner: 'A'|'B') => {
-    const ids = rows.filter(r=>r.owner===owner).map(r=>r.id);
+  const selectAllInView = () => {
+    const ids = groups.flatMap(g => g.rows.map(r => r.id));
     const next = new Set(selected);
-    ids.forEach(id=>next.add(id));
+    ids.forEach(id => next.add(id));
     setSelected(next);
     onChangeSelected?.(Array.from(next));
-    track('bulk_action_apply', { action: 'select_all', owner });
+    track('bulk_action_apply', { action: 'select_all_in_view' });
+  };
+  const clearAll = () => {
+    setSelected(new Set());
+    onChangeSelected?.([]);
+    track('bulk_action_apply', { action: 'clear_all' });
   };
 
   const Row = (r: BillRow) => {
@@ -86,39 +99,75 @@ export function BillsList({
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState(n.name);
     const [amt, setAmt] = useState(Math.abs(r.amount).toFixed(2));
+    const lowConf = !r.freq;
+
+    const amountStr = (() => {
+      const num = Math.abs(parseFloat(amt) || 0);
+      return new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
+    })();
+
+    const freqChip = (() => {
+      if (!r.freq) return '';
+      const f = r.freq.toLowerCase();
+      if (f === 'monthly') return r.dueDay ? `monthly · day ${r.dueDay}` : 'monthly';
+      if (f === 'fortnightly') {
+        const dow = typeof r.dayOfWeek === 'number' ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][r.dayOfWeek] : undefined;
+        return dow ? `fortnightly · ${dow}` : 'fortnightly';
+      }
+      if (f === 'weekly') {
+        const dow = typeof r.dayOfWeek === 'number' ? ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][r.dayOfWeek] : undefined;
+        return dow ? `weekly · ${dow}` : 'weekly';
+      }
+      if (f === 'four_weekly') return '4 weeks';
+      return r.freq;
+    })();
+
     return (
       <div
-        className="grid md:grid-cols-[1.5rem,7rem,1fr,5rem,6rem] grid-cols-[1.5rem,1fr,auto] gap-x-2 items-center min-h-[44px] md:h-11 px-2 py-2 md:py-0 cursor-pointer hover:bg-muted/40"
+        className={"w-full px-2 py-2 cursor-pointer hover:bg-muted/40 border-l-2 " + (lowConf ? 'border-amber-300 border-dotted' : 'border-transparent')}
         role="checkbox" aria-checked={checked}
         onClick={() => { const next = new Set(selected); checked ? next.delete(r.id) : next.add(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); }}
       >
-        <Checkbox checked={checked} onClick={(e)=>e.stopPropagation()} onCheckedChange={(v)=>{ const next = new Set(selected); v? next.add(r.id) : next.delete(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); }} />
-        <div className="hidden md:block font-semibold tabular-nums">{formatDate(r.dateISO)}</div>
-        <div className="min-w-0" onClick={(e)=>e.stopPropagation()}>
-          {!editing ? (
-            <div className="truncate inline-flex items-center gap-2">
-              <span className="font-medium">{name}</span>
-              {n.category && (<Badge variant="secondary" className="rounded-full">{n.category}</Badge>)}
-              <button aria-label="Edit bill" className="text-muted-foreground" onClick={()=>setEditing(true)}>
-                <Pencil className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <input className="h-8 w-36 sm:w-40 border rounded-md px-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
-              <button className="text-xs underline" onClick={()=>{ setEditing(false); onRename?.(r.id, name.trim()); }}>Save</button>
-            </div>
+        {/* Line 1 */}
+        <div className="flex items-start gap-2">
+          <div className="pt-0.5">
+            <Checkbox checked={checked} onClick={(e)=>e.stopPropagation()} onCheckedChange={(v)=>{ const next = new Set(selected); v? next.add(r.id) : next.delete(r.id); setSelected(next); onChangeSelected?.(Array.from(next)); }} />
+          </div>
+          <div className="flex-1 min-w-0" onClick={(e)=>e.stopPropagation()}>
+            {!editing ? (
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-sm sm:text-base truncate">{name}</span>
+                <button aria-label={`Edit ${name}`} className="text-muted-foreground shrink-0 h-8 w-8 inline-flex items-center justify-center" onClick={()=>setEditing(true)}>
+                  <Pencil className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input className="h-8 w-36 sm:w-40 border rounded-md px-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
+                <button className="text-xs underline" onClick={()=>{ setEditing(false); onRename?.(r.id, name.trim()); }}>Save</button>
+              </div>
+            )}
+          </div>
+          <div className="shrink-0 text-right font-semibold tabular-nums whitespace-nowrap" onClick={(e)=>e.stopPropagation()}>
+            {!editing ? (
+              <span>{amountStr}</span>
+            ) : (
+              <input className="h-8 w-20 border rounded-md px-2 text-sm text-right" value={amt} onChange={(e)=>setAmt(e.target.value)} onBlur={()=> onAmount?.(r.id, Math.abs(parseFloat(amt)) || 0)} />
+            )}
+          </div>
+        </div>
+        {/* Line 2 (meta chips) */}
+        <div className="flex flex-nowrap items-center gap-1 mt-1 overflow-hidden">
+          <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{formatDate(r.dateISO)}</span>
+          <span className="text-[10px] bg-muted/60 px-2 py-0.5 rounded-full shrink-0">{r.owner}</span>
+          {freqChip && (
+            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full min-w-0 truncate">{freqChip}</span>
           )}
-          <div className="md:hidden text-[11px] text-muted-foreground mt-0.5">{formatDate(r.dateISO)} • {r.owner}</div>
-        </div>
-        <div className="hidden md:flex text-center items-center justify-center" onClick={(e)=>e.stopPropagation()}>
-          <Badge variant="outline" className="rounded-full text-[10px] mx-auto">{r.owner}</Badge>
-        </div>
-        <div className="text-right font-medium flex items-center justify-end gap-2" onClick={(e)=>e.stopPropagation()}>
-          {!editing ? (
-            <span>{Math.abs(parseFloat(amt)).toFixed(2)}</span>
-          ) : (
-            <input className="h-8 w-16 sm:w-20 border rounded-md px-2 text-sm text-right" value={amt} onChange={(e)=>setAmt(e.target.value)} onBlur={()=> onAmount?.(r.id, Math.abs(parseFloat(amt)) || 0)} />
+          {n.category && (
+            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full min-w-0 truncate">{n.category}</span>
+          )}
+          {lowConf && (
+            <span className="text-[10px] text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full shrink-0" aria-hidden="true">Low conf.</span>
           )}
         </div>
       </div>
@@ -135,45 +184,43 @@ export function BillsList({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <button className="underline" onClick={()=>{
-          const allIds = groups.flatMap(g=>g.rows.map(r=>r.id));
-          const next = new Set(selected);
-          allIds.forEach(id=>next.add(id));
-          setSelected(next);
-          onChangeSelected?.(Array.from(next));
-        }}>Select all</button>
-        <button className="underline" onClick={()=>{ setSelected(new Set()); onChangeSelected?.([]); }}>Clear all</button>
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={filters.hideSmall}
-            onChange={(e)=>setFilters(f=>({ ...f, hideSmall: e.target.checked }))}
-          />
-          Hide &lt;2
-        </label>
-        <label className="flex items-center gap-1">
-          <input
-            type="checkbox"
-            checked={filters.showLow}
-            onChange={(e)=>setFilters(f=>({ ...f, showLow: e.target.checked }))}
-          />
-          Show low confidence
-        </label>
+      {/* Toolbar: Group by + Bulk */}
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <div className="inline-flex items-center gap-2">
+          <span className="text-muted-foreground">Group by:</span>
+          <div className="inline-flex rounded-md border overflow-hidden">
+            <button className={`px-3 py-1.5 ${groupBy==='month'?'bg-secondary':''}`} onClick={()=>onChangeGroupBy?.('month')}>Month</button>
+            <button className={`px-3 py-1.5 ${groupBy==='owner'?'bg-secondary':''}`} onClick={()=>onChangeGroupBy?.('owner')}>Owner</button>
+          </div>
+        </div>
+        <button
+          className="px-3 py-1.5 rounded-md border min-w-9 text-center"
+          aria-label="Bulk actions"
+          title="Bulk actions"
+          onClick={()=>setBulkOpen(true)}
+        >
+          <span aria-hidden="true">…</span>
+          <span className="sr-only">Bulk actions</span>
+        </button>
       </div>
 
       {groups.map(g => {
         const open = openMonths[g.key] !== false; // default open
         return (
           <div key={g.key} className="border rounded-xl overflow-hidden">
-            <button className="w-full flex items-center justify-between p-3 bg-muted/40" onClick={()=>toggleMonth(g.key)}>
-              <div className="font-medium">{g.label}</div>
-              <div className="text-sm">Subtotal {g.subtotal.toFixed(2)}</div>
-            </button>
+            <div className="sticky top-0 z-10">
+              <button className="w-full flex items-center justify-between p-3 bg-muted/40" onClick={()=>toggleMonth(g.key)}>
+                <div className="font-medium">{g.label}</div>
+                <div className="text-sm flex items-center gap-3">
+                  <span>Subtotal {g.subtotal.toFixed(2)}</span>
+                  <span className="text-xs underline">{open ? 'Hide items' : 'Show items'}</span>
+                </div>
+              </button>
+            </div>
             {open && (
               <VirtualList
                 items={g.rows}
-                itemHeight={44}
+                itemHeight={64}
                 className="max-h-80 overflow-auto"
                 render={(row) => <Row {...row} />}
               />
@@ -181,6 +228,27 @@ export function BillsList({
           </div>
         );
       })}
+
+      {/* Bulk Sheet */}
+      <Sheet open={bulkOpen} onOpenChange={setBulkOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader>
+            <SheetTitle>Bulk actions</SheetTitle>
+          </SheetHeader>
+          <div className="mt-3 space-y-2">
+            <button className="w-full h-11 rounded-md border px-3 text-left" onClick={()=>{ selectAllInView(); setBulkOpen(false); }}>Select all in view</button>
+            <button className="w-full h-11 rounded-md border px-3 text-left" onClick={()=>{ clearAll(); setBulkOpen(false); }}>Clear all</button>
+            <label className="w-full h-11 rounded-md border px-3 inline-flex items-center justify-between">
+              <span>Hide micro &lt; 2</span>
+              <input type="checkbox" checked={filters.hideSmall} onChange={(e)=>setFilters(f=>({ ...f, hideSmall: e.target.checked }))} />
+            </label>
+            <label className="w-full h-11 rounded-md border px-3 inline-flex items-center justify-between">
+              <span>Show low confidence</span>
+              <input type="checkbox" checked={filters.showLow} onChange={(e)=>setFilters(f=>({ ...f, showLow: e.target.checked }))} />
+            </label>
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
