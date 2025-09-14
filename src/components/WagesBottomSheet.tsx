@@ -44,7 +44,12 @@ export function WagesBottomSheet({
   const curAmount = editing ? amt : (top?.amount || 0);
   const curFreq: PayFrequency = editing ? freq : (top?.freq || 'monthly');
   const monthly = toMonthly(curAmount, curFreq);
-  const freqLabel = (curFreq || 'monthly').toUpperCase();
+  const perOcc = curAmount;
+  const unitLabel = (
+    curFreq === 'weekly' ? 'week' :
+    curFreq === 'fortnightly' ? 'fortnight' :
+    curFreq === 'four_weekly' ? '4 weeks' : 'month'
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -64,11 +69,10 @@ export function WagesBottomSheet({
         {/* Summary */}
         <div className="mt-4 text-center">
           <div className="text-2xl font-bold tabular-nums">
-            {new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(monthly)}
-            <span className="text-base font-normal text-muted-foreground"> / month</span>
+            {new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(perOcc)}
+            <span className="text-base font-normal text-muted-foreground"> / {unitLabel}</span>
           </div>
           <div className="mt-2 flex items-center justify-center gap-2">
-            <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full">{freqLabel}</span>
             {lastSeenISO && (
               <span className="text-[11px] bg-muted/60 px-2 py-0.5 rounded-full">Last paid: {formatDate(lastSeenISO)}</span>
             )}
