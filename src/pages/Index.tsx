@@ -50,6 +50,7 @@ import { WagesBottomSheet } from '@/components/WagesBottomSheet';
 import { ElectricityUpload } from '@/components/ElectricityUpload';
 import { ForecastForm } from '@/components/ForecastForm';
 import { ResultsHero } from '@/components/ResultsHero';
+import { useInView } from '@/hooks/useInView';
 import { ForecastCalendar } from '@/components/ForecastCalendar';
 import { SavingsPanel } from '@/components/SavingsPanel';
 import { CashflowSummary } from '@/components/CashflowSummary';
@@ -173,6 +174,10 @@ const Index = () => {
   const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
   // Focused category for Household donut (hover/tap)
   const [householdFocus, setHouseholdFocus] = useState<string | null>(null);
+  // In-view observers for charts to delay animation until visible
+  const [houseDonutRef, houseDonutInView] = useInView<HTMLDivElement>({ threshold: 0.2, rootMargin: '0px 0px -40px 0px', once: true });
+  const [personADonutRef, personADonutInView] = useInView<HTMLDivElement>({ threshold: 0.2, rootMargin: '0px 0px -40px 0px', once: true });
+  const [personBDonutRef, personBDonutInView] = useInView<HTMLDivElement>({ threshold: 0.2, rootMargin: '0px 0px -40px 0px', once: true });
 
   // Access plan store early so hooks below can depend on it safely
   const { detected, inputs, result: storeResult } = usePlanStore();
@@ -1424,6 +1429,11 @@ const Index = () => {
       });
     }
   };
+
+  // Ensure viewport is reset to top on step changes
+  useEffect(() => {
+    try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { window.scrollTo(0,0); }
+  }, [state.step]);
 
   // Add/Edit bill handler
   const handleBillSubmit = async (values: { name: string; amount: number; dueDate: string; frequency: BillFrequency }) => {
@@ -2929,7 +2939,8 @@ const Index = () => {
 
                         return (
                           <div className="grid grid-cols-1">
-                            <div className="h-96 relative" onMouseLeave={() => setHouseholdFocus(null)}>
+                            <div ref={houseDonutRef} className="h-96 relative" onMouseLeave={() => setHouseholdFocus(null)}>
+                              {houseDonutInView && (
                               <ResponsiveContainer width="100%" height="100%">
                                 <PieChart>
                                   <Pie
@@ -2974,6 +2985,7 @@ const Index = () => {
                                   <Tooltip content={tooltip} />
                                 </PieChart>
                               </ResponsiveContainer>
+                              )}
                               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none space-y-1 text-center">
                                 {focusedName && selectedItem ? (
                                   <>
@@ -3037,19 +3049,21 @@ const Index = () => {
                             <Badge variant="secondary">Income: {fmt(monthlyIncomeA)}</Badge>
                           </div>
                         </div>
-                        <div className="h-64">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie data={makePieData('A')} dataKey="value" nameKey="name" outerRadius={90} labelLine={false} label={false}>
-                                {makePieData('A').map((entry, index) => (
-                                  <Cell key={`cell-a-${index}`} fill={COLORS[entry.key]} />
-                                ))}
-                              </Pie>
-                              <Tooltip formatter={(v: any, n: any) => [fmt(v as number), n as string]} />
-                              <Legend verticalAlign="bottom" height={36} formatter={LegendFmt} />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
+                      <div ref={personADonutRef} className="h-64">
+                        {personADonutInView && (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={makePieData('A')} dataKey="value" nameKey="name" outerRadius={90} labelLine={false} label={false}>
+                              {makePieData('A').map((entry, index) => (
+                                <Cell key={`cell-a-${index}`} fill={COLORS[entry.key]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(v: any, n: any) => [fmt(v as number), n as string]} />
+                            <Legend verticalAlign="bottom" height={36} formatter={LegendFmt} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        )}
+                      </div>
                         <div className="mt-3 text-xs text-muted-foreground">
                           <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPotsA(s => !s)}>
                             {showPotsA ? 'Hide details' : 'View details'}
@@ -3089,19 +3103,21 @@ const Index = () => {
                               <Badge variant="secondary">Income: {fmt(monthlyIncomeB)}</Badge>
                             </div>
                           </div>
-                          <div className="h-64">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <PieChart>
-                                <Pie data={makePieData('B')} dataKey="value" nameKey="name" outerRadius={90} labelLine={false} label={false}>
-                                  {makePieData('B').map((entry, index) => (
-                                    <Cell key={`cell-b-${index}`} fill={COLORS[entry.key]} />
-                                  ))}
-                                </Pie>
-                                <Tooltip formatter={(v: any, n: any) => [fmt(v as number), n as string]} />
-                                <Legend verticalAlign="bottom" height={36} formatter={LegendFmt} />
-                              </PieChart>
-                            </ResponsiveContainer>
-                          </div>
+                      <div ref={personBDonutRef} className="h-64">
+                        {personBDonutInView && (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={makePieData('B')} dataKey="value" nameKey="name" outerRadius={90} labelLine={false} label={false}>
+                              {makePieData('B').map((entry, index) => (
+                                <Cell key={`cell-b-${index}`} fill={COLORS[entry.key]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(v: any, n: any) => [fmt(v as number), n as string]} />
+                            <Legend verticalAlign="bottom" height={36} formatter={LegendFmt} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        )}
+                      </div>
                           <div className="mt-3 text-xs text-muted-foreground">
                             <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => setShowPotsB(s => !s)}>
                               {showPotsB ? 'Hide details' : 'View details'}

@@ -21,6 +21,7 @@ import SimWorker from "./workers/simWorker.ts?worker";
 import { expandRecurring } from "./lib/expandRecurring";
 import { ThemeProvider } from "next-themes";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { ScrollToTop } from "./components/ScrollToTop";
 
 const queryClient = new QueryClient();
 
@@ -328,6 +329,7 @@ function App() {
             {/* Tiny theme toggle chip in top-left */}
             <ThemeToggle />
             <BrowserRouter>
+              <ScrollToTop behavior="auto" />
               <Routes>
                 <Route path="/" element={<Index />} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

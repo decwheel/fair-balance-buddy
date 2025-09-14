@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import { useInView } from '@/hooks/useInView';
 import type { SavingsPot } from '@/types';
 
 export function ForecastForm({
@@ -34,6 +35,7 @@ export function ForecastForm({
   const [potAmt, setPotAmt] = React.useState(0);
   const [potTarget, setPotTarget] = React.useState<string>('');
   const [owner, setOwner] = React.useState<'A'|'B'|'JOINT'>(mode === 'joint' ? 'A' : 'A');
+  const [chartRef, chartInView] = useInView<HTMLDivElement>({ threshold: 0.2, rootMargin: '0px 0px -40px 0px', once: true });
   return (
     <div className="space-y-4">
       <Card>
@@ -115,12 +117,14 @@ export function ForecastForm({
               </div>
             ))}
           </div>
-          <div className="h-16 mt-3">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={upcoming.map(u => ({ x: u.dateISO, y: u.amount }))}>
-                <Line type="monotone" dataKey="y" stroke="hsl(var(--accent))" dot={false} strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
+          <div ref={chartRef} className="h-16 mt-3">
+            {chartInView && (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={upcoming.map(u => ({ x: u.dateISO, y: u.amount }))}>
+                  <Line type="monotone" dataKey="y" stroke="hsl(var(--accent))" dot={false} strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </CardContent>
       </Card>
