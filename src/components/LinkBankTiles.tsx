@@ -70,7 +70,7 @@ function Tile({ person, data, onLink, pulse }: { person: Person; data: { linked:
         {logo ? (
           <img src={logo} alt="Bank logo" className="w-8 h-8 rounded-full object-cover" />
         ) : (
-          <PiggyBank className="w-5 h-5" />
+          <PiggyBank className="w-5 h-5 text-black dark:text-black" />
         )}
       </div>
       <div className="min-w-0 flex-1">

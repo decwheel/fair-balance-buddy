@@ -212,8 +212,8 @@ export function BillsList({
         <div className="inline-flex items-center gap-3 flex-wrap">
           <span className="text-muted-foreground">Group by:</span>
           <div className="inline-flex rounded-md border overflow-hidden">
-            <button className={`px-3 py-1.5 ${groupBy==='month'?'bg-secondary':''}`} onClick={()=>onChangeGroupBy?.('month')}>Month</button>
             <button className={`px-3 py-1.5 ${groupBy==='owner'?'bg-secondary':''}`} onClick={()=>onChangeGroupBy?.('owner')}>Owner</button>
+            <button className={`px-3 py-1.5 ${groupBy==='month'?'bg-secondary':''}`} onClick={()=>onChangeGroupBy?.('month')}>Month</button>
           </div>
         </div>
         <button

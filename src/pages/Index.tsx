@@ -167,7 +167,7 @@ const Index = () => {
   // Detailed savings pots toggle for summary charts
   const [showPotsA, setShowPotsA] = useState(false);
   const [showPotsB, setShowPotsB] = useState(false);
-  const [billGroupBy, setBillGroupBy] = useState<'month'|'owner'>('month');
+  const [billGroupBy, setBillGroupBy] = useState<'month'|'owner'>('owner');
   // Results: Cash Flow Summary view toggles
   const [summaryView, setSummaryView] = useState<'household'|'person'>('household');
   const [showHouseholdDetails, setShowHouseholdDetails] = useState(false);
@@ -1513,7 +1513,7 @@ const Index = () => {
             <CardHeader>
               <CardTitle>Couple Setup</CardTitle>
               <CardDescription>
-                Pick how you want to set up your couple forecast
+                Pick how you want to set up you household forecast
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
