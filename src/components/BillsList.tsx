@@ -32,6 +32,7 @@ export function BillsList({
   onChangeSelected,
   onRename,
   onAmount,
+  onEditRow,
   groupBy = 'month',
   onChangeGroupBy,
 }: {
@@ -41,6 +42,7 @@ export function BillsList({
   onChangeSelected?: (ids: string[]) => void;
   onRename?: (id: string, name: string) => void;
   onAmount?: (id: string, amount: number) => void;
+  onEditRow?: (id: string, patch: { name?: string; amount?: number }) => void;
   groupBy?: 'month' | 'owner';
   onChangeGroupBy?: (g: 'month' | 'owner') => void;
 }) {
@@ -148,6 +150,17 @@ export function BillsList({
       return '';
     })();
 
+    const commit = () => {
+      const amountNum = Math.abs(parseFloat(amt)) || 0;
+      if (onEditRow) {
+        onEditRow(r.id, { name: name.trim(), amount: amountNum });
+      } else {
+        onRename?.(r.id, name.trim());
+        onAmount?.(r.id, amountNum);
+      }
+      setEditing(false);
+    };
+
     return (
       <div
         className={(index !== undefined && index % 2 === 0 ? 'bg-muted/20 ' : '') + 'hover:bg-muted/40 w-full cursor-pointer border-l-2 ' + (lowConf ? 'border-amber-300 border-dotted ' : 'border-transparent ')}
@@ -168,8 +181,13 @@ export function BillsList({
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <input className="h-8 w-36 sm:w-40 border rounded-md px-2 text-sm" value={name} onChange={(e)=>setName(e.target.value)} />
-                <button className="text-xs underline" onClick={()=>{ setEditing(false); onRename?.(r.id, name.trim()); }}>Save</button>
+                <input
+                  className="h-8 w-36 sm:w-40 border rounded-md px-2 text-sm"
+                  value={name}
+                  onChange={(e)=>setName(e.target.value)}
+                  onKeyDown={(e)=>{ if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(); } }}
+                />
+                <button className="text-xs underline" onClick={(e)=>{ e.stopPropagation(); commit(); }}>Save</button>
               </div>
             )}
           </div>
@@ -177,7 +195,12 @@ export function BillsList({
             {!editing ? (
               <span>{amountStr}</span>
             ) : (
-              <input className="h-8 w-20 border rounded-md px-2 text-sm text-right" value={amt} onChange={(e)=>setAmt(e.target.value)} onBlur={()=> onAmount?.(r.id, Math.abs(parseFloat(amt)) || 0)} />
+              <input
+                className="h-8 w-20 border rounded-md px-2 text-sm text-right"
+                value={amt}
+                onChange={(e)=>setAmt(e.target.value)}
+                onKeyDown={(e)=>{ if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); commit(); } }}
+              />
             )}
           </div>
           {/* Line 2: meta sentence and single tag pill at far right */}

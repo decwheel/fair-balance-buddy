@@ -288,8 +288,43 @@ const Index = () => {
       // Build expanded bill set (manual + imported recurring + electricity)
       const months = 12;
       const startMin = (state.mode === 'joint' && startDateB) ? (startDateA < startDateB ? startDateA : startDateB) : startDateA;
-      const importedA = expandRecurring(detected?.recurring ?? [], startMin, months, 'imp-a-');
-      const importedB = expandRecurring((detected?.recurringB ?? (detected as any)?.allRecurring ?? []), startMin, months, 'imp-b-');
+      let importedA = expandRecurring(detected?.recurring ?? [], startMin, months, 'imp-a-');
+      let importedB = expandRecurring((detected?.recurringB ?? (detected as any)?.allRecurring ?? []), startMin, months, 'imp-b-');
+      // Apply include filters and user edits based on detected-series edits from Bank screen
+      try {
+        const detectedSeries = (state.bills || []).filter(b => (b as any).source === 'detected');
+        const includeA = new Set<string>();
+        const includeB = new Set<string>();
+        const editsA = new Map<string, { name: string; amount: number }>();
+        const editsB = new Map<string, { name: string; amount: number }>();
+        for (const b of detectedSeries) {
+          const owner = (b as any).owner as 'A'|'B'|'JOINT'|undefined;
+          const key = (b as any).seriesKey || `${owner || 'A'}::${b.name}`;
+          const included = (state.includedBillIds || []).includes(b.id!);
+          const patch = { name: b.name, amount: b.amount };
+          if (owner === 'B') {
+            editsB.set(key, patch);
+            if (included) includeB.add(key);
+          } else {
+            editsA.set(key, patch);
+            if (included) includeA.add(key);
+          }
+        }
+        const hasA = Array.from(editsA.keys()).length > 0;
+        const hasB = Array.from(editsB.keys()).length > 0;
+        importedA = importedA
+          .filter(b => (!hasA || includeA.size === 0) ? true : includeA.has((b as any).seriesKey || `A::${b.name}`))
+          .map(b => {
+            const over = editsA.get((b as any).seriesKey || `A::${b.name}`);
+            return over ? { ...b, name: over.name, amount: over.amount } : b;
+          });
+        importedB = importedB
+          .filter(b => (!hasB || includeB.size === 0) ? true : includeB.has((b as any).seriesKey || `B::${b.name}`))
+          .map(b => {
+            const over = editsB.get((b as any).seriesKey || `B::${b.name}`);
+            return over ? { ...b, name: over.name, amount: over.amount } : b;
+          });
+      } catch {}
       let mergedBills = [...manual, ...importedA, ...importedB, ...elecPredicted];
       // Apply any pending date moves as forecast does
       const movesToApply = dateMoves;
@@ -616,8 +651,8 @@ const Index = () => {
         dueDate: lastDate,
         source: 'detected' as any,
         movable: false,
-        // @ts-ignore – UI-only field
         owner: 'A',
+        seriesKey: `A::${r.description}::${r.freq}::${(r as any).dueDay ?? ''}::${(r as any).dayOfWeek ?? ''}::${Math.round(Math.abs(r.amount || 0))}`,
       };
       })
     : [];
@@ -645,8 +680,8 @@ const Index = () => {
         dueDate: lastDate,
         source: 'detected' as any,
         movable: false,
-        // @ts-ignore – UI-only field
         owner: 'B',
+        seriesKey: `B::${r.description}::${r.freq}::${(r as any).dueDay ?? ''}::${(r as any).dayOfWeek ?? ''}::${Math.round(Math.abs(r.amount || 0))}`,
       };
     })
     : [];
@@ -928,13 +963,50 @@ const Index = () => {
       const startDate = startDateB && startDateA > startDateB ? startDateB : startDateA;
 
       const months = 12;
-      const importedA = expandRecurring(detected?.recurring ?? [], startDate, months, 'imp-a-');
-      const importedB = expandRecurring(
+      // Expand worker-detected recurring series
+      let importedA = expandRecurring(detected?.recurring ?? [], startDate, months, 'imp-a-');
+      let importedB = expandRecurring(
         (detected?.recurringB ?? (detected as any)?.allRecurring ?? []),
         startDate,
         months,
         'imp-b-'
       );
+      // Apply include filters and user edits (name/amount) captured on the detected series
+      try {
+        const detectedSeries = (currentState.bills || []).filter(b => (b as any).source === 'detected');
+        const includeA = new Set<string>();
+        const includeB = new Set<string>();
+        const editsA = new Map<string, { name: string; amount: number }>();
+        const editsB = new Map<string, { name: string; amount: number }>();
+        for (const b of detectedSeries) {
+          const owner = (b as any).owner as 'A'|'B'|'JOINT'|undefined;
+          const key = (b as any).seriesKey || `${owner || 'A'}::${b.name}`;
+          const included = (currentState.includedBillIds || []).includes(b.id!);
+          const patch = { name: b.name, amount: b.amount };
+          if (owner === 'B') {
+            editsB.set(key, patch);
+            if (included) includeB.add(key);
+          } else {
+            editsA.set(key, patch);
+            if (included) includeA.add(key);
+          }
+        }
+        // Filter to included series only (if any detected exist for that owner)
+        const hasA = Array.from(editsA.keys()).length > 0;
+        const hasB = Array.from(editsB.keys()).length > 0;
+        importedA = importedA
+          .filter(b => (!hasA || includeA.size === 0) ? true : includeA.has((b as any).seriesKey || `A::${b.name}`))
+          .map(b => {
+            const over = editsA.get((b as any).seriesKey || `A::${b.name}`);
+            return over ? { ...b, name: over.name, amount: over.amount } : b;
+          });
+        importedB = importedB
+          .filter(b => (!hasB || includeB.size === 0) ? true : includeB.has((b as any).seriesKey || `B::${b.name}`))
+          .map(b => {
+            const over = editsB.get((b as any).seriesKey || `B::${b.name}`);
+            return over ? { ...b, name: over.name, amount: over.amount } : b;
+          });
+      } catch {}
       let mergedBills = [...manual, ...importedA, ...importedB, ...elecPredicted];
       // Apply any pending date moves (name + fromISO → toISO)
       const movesToApply = movesOverride && movesOverride.length ? movesOverride : dateMoves;
@@ -1785,6 +1857,10 @@ const Index = () => {
                             onChangeSelected={(ids)=> setState(prev => ({ ...prev, includedBillIds: ids }))}
                             onRename={(id, name)=> setState(prev => ({ ...prev, bills: prev.bills.map(b => b.id===id ? { ...b, name } : b) }))}
                             onAmount={(id, amount)=> setState(prev => ({ ...prev, bills: prev.bills.map(b => b.id===id ? { ...b, amount } : b) }))}
+                            onEditRow={(id, patch)=> setState(prev => ({
+                              ...prev,
+                              bills: prev.bills.map(b => b.id===id ? { ...b, ...(patch.name !== undefined ? { name: patch.name } : {}), ...(typeof patch.amount === 'number' ? { amount: patch.amount } : {}) } : b)
+                            }))}
                             groupBy={billGroupBy}
                             onChangeGroupBy={(g)=> setBillGroupBy(g)}
                           />
@@ -2744,12 +2820,67 @@ const Index = () => {
                             default: return amt;
                           }
                         };
+                        // Rebuild merged bills with include + edit overrides and compute 12‑mo monthly avg
                         const detectedState: any = usePlanStore.getState().detected || {};
-                        const recurringMonthly = ([...(detectedState.recurring || []), ...(detectedState.recurringB || [])] as any[])
-                          .reduce((s, r) => s + toMonthlyNorm(Number(r.amount) || 0, r.freq), 0);
                         const elecPred = (state.bills || []).filter(b => b.source === 'predicted-electricity');
                         const elecMonthly = elecPred.reduce((s, b) => s + (Number(b.amount) || 0), 0) / 12;
-                        const combinedBills = recurringMonthly + elecMonthly;
+                        // Determine a stable start for horizon (prefer worker’s start)
+                        const startISO = (usePlanStore.getState().result as any)?.startISO || (() => {
+                          try {
+                            const manual = (state.bills || []).filter(b => b.source === 'manual');
+                            const firstAnchor = state.userB?.paySchedule
+                              ? (state.userA.paySchedule!.anchorDate < state.userB.paySchedule!.anchorDate ? state.userA.paySchedule!.anchorDate : state.userB.paySchedule!.anchorDate)
+                              : state.userA.paySchedule!.anchorDate;
+                            const allBillsProvisional = rollForwardPastBills([...manual, ...elecPred].map(b => ({
+                              id: b.id || '', name: b.name, amount: b.amount,
+                              issueDate: b.issueDate || (b as any).dueDateISO || b.dueDate || firstAnchor,
+                              dueDate: b.dueDate || (b as any).dueDateISO || firstAnchor,
+                              source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as any,
+                              movable: b.movable
+                            })), firstAnchor);
+                            const startDateA = getStartDate(state.userA.paySchedule!, allBillsProvisional);
+                            const startDateB = (state.mode === 'joint' && state.userB?.paySchedule) ? getStartDate(state.userB.paySchedule!, allBillsProvisional) : '';
+                            return startDateB && startDateA > startDateB ? startDateB : startDateA;
+                          } catch { return new Date().toISOString().slice(0,10); }
+                        })();
+                        // Expand recurring from store
+                        let importedA = expandRecurring(detectedState.recurring || [], startISO, 12, 'imp-a-');
+                        let importedB = expandRecurring(detectedState.recurringB || [], startISO, 12, 'imp-b-');
+                        // Apply include + edits captured on detected series from Bank screen
+                        try {
+                          const detectedSeries = (state.bills || []).filter(b => (b as any).source === 'detected');
+                          const includeA = new Set<string>();
+                          const includeB = new Set<string>();
+                          const editsA = new Map<string, { name: string; amount: number }>();
+                          const editsB = new Map<string, { name: string; amount: number }>();
+                          for (const b of detectedSeries) {
+                            const owner = (b as any).owner as 'A'|'B'|'JOINT'|undefined;
+                            const key = (b as any).seriesKey || `${owner || 'A'}::${b.name}`;
+                            const included = (state.includedBillIds || []).includes(b.id!);
+                            const patch = { name: b.name, amount: b.amount };
+                            if (owner === 'B') { editsB.set(key, patch); if (included) includeB.add(key); }
+                            else { editsA.set(key, patch); if (included) includeA.add(key); }
+                          }
+                          const hasA = editsA.size > 0; const hasB = editsB.size > 0;
+                          importedA = importedA
+                            .filter(b => (!hasA || includeA.size === 0) ? true : includeA.has((b as any).seriesKey || `A::${b.name}`))
+                            .map(b => { const over = editsA.get((b as any).seriesKey || `A::${b.name}`); return over ? { ...b, name: over.name, amount: over.amount } : b; });
+                          importedB = importedB
+                            .filter(b => (!hasB || includeB.size === 0) ? true : includeB.has((b as any).seriesKey || `B::${b.name}`))
+                            .map(b => { const over = editsB.get((b as any).seriesKey || `B::${b.name}`); return over ? { ...b, name: over.name, amount: over.amount } : b; });
+                        } catch {}
+                        const manual = (state.bills || []).filter(b => b.source === 'manual');
+                        const mergedBills = [...manual, ...importedA, ...importedB, ...elecPred];
+                        const endISO = (() => { const d = new Date(startISO + 'T00:00:00'); d.setMonth(d.getMonth()+12); return d.toISOString().slice(0,10); })();
+                        const rolled = rollForwardPastBills(
+                          mergedBills.map(b => ({ id: b.id || '', name: b.name, amount: b.amount,
+                            issueDate: b.issueDate || (b as any).dueDateISO || b.dueDate || startISO,
+                            dueDate: b.dueDate || (b as any).dueDateISO || startISO,
+                            source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as any,
+                            movable: b.movable })), startISO)
+                        .filter(b => !b.dueDate || (b.dueDate >= startISO && b.dueDate <= endISO));
+                        const totalBills12mo = rolled.reduce((s,b)=> s + (Number(b.amount) || 0), 0);
+                        const combinedBills = (totalBills12mo / 12);
                         const combinedAllowance = allowanceMonthlyA + allowanceMonthlyB;
                         const combinedSavings = (sumA + sumB + sumJ);
                         const combinedLeftover = Math.max(0, combinedIncome - combinedBills - combinedAllowance - combinedSavings);

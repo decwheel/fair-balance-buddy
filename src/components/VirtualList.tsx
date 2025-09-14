@@ -36,8 +36,9 @@ export function VirtualList<T>({ items, itemHeight, overscan = 8, className, ren
   for (let i = startIndex; i <= endIndex; i++) {
     const it = items[i];
     if (it === undefined) continue;
+    const key: React.Key = (it as any)?.id ?? i;
     visible.push(
-      <div key={i} style={{ height: itemHeight }} className="overflow-hidden">
+      <div key={key} style={{ height: itemHeight }} className="overflow-hidden">
         {render(it, i)}
       </div>
     );
@@ -53,4 +54,3 @@ export function VirtualList<T>({ items, itemHeight, overscan = 8, className, ren
     </div>
   );
 }
-

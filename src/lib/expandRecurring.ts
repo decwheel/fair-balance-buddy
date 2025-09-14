@@ -1,5 +1,4 @@
-import type { Bill } from "../types";
-import type { RecurringItem } from "../types";
+import type { Bill, RecurringItem } from "../types";
 
 /* Local helpers to avoid cross-file churn */
 const toISO = (d: Date) => d.toISOString().slice(0, 10);
@@ -49,6 +48,8 @@ export function expandRecurringItem(r: RecurringItem, startISO: string, months: 
   const push = (iso: string) => {
     const IMMUTABLE = /(CRECHE|FAIRYHOUSE\s+CRECHE|HOGAN\s+DIRECT|OP\/NEW\s+IRELAN|NEPOSCHGGBP|\bEIR\b|\bSKY\b|DISNEY|SPOTIFY|APPLE\.COM|HUMMGROUP)/i;
     const isImmovable = IMMUTABLE.test(r.description || '');
+    const owner: 'A'|'B'|'JOINT' = idPrefix.startsWith('imp-a-') ? 'A' : idPrefix.startsWith('imp-b-') ? 'B' : 'JOINT';
+    const sig = `${owner}::${r.description}::${r.freq}::${r.dueDay ?? ''}::${r.dayOfWeek ?? ''}::${Math.round(Math.abs(r.amount || 0))}`;
     out.push({
       id: `${idPrefix}-${iso}`,
       name: r.description,
@@ -58,6 +59,8 @@ export function expandRecurringItem(r: RecurringItem, startISO: string, months: 
       account: "JOINT" as const,
       source: "imported" as const,
       movable: !isImmovable,
+      owner,
+      seriesKey: sig,
     });
   };
 

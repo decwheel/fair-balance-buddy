@@ -12,6 +12,9 @@ export type Bill = {
   movable?: boolean;         // whether the bill can be moved to optimize deposits
   source?: "manual" | "predicted-electricity" | "imported" | "electricity";
   issueDate?: string;        // for compatibility with forecastAdapters
+  // Optional UI/worker metadata to track recurring series across expansions
+  owner?: "A" | "B" | "JOINT";
+  seriesKey?: string;
 };
 
 export type Transaction = {
