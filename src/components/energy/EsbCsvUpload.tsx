@@ -11,9 +11,10 @@ import { formatCurrency } from '@/utils/dateUtils';
 interface EsbCsvUploadProps {
   onReadingsLoaded: (readings: EsbReading[]) => void;
   isLoading?: boolean;
+  onProcessingChange?: (loading: boolean) => void;
 }
 
-export function EsbCsvUpload({ onReadingsLoaded, isLoading = false, compact = false }: EsbCsvUploadProps & { compact?: boolean }) {
+export function EsbCsvUpload({ onReadingsLoaded, isLoading = false, onProcessingChange, compact = false }: EsbCsvUploadProps & { compact?: boolean }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadResult, setUploadResult] = useState<{
@@ -38,6 +39,7 @@ export function EsbCsvUpload({ onReadingsLoaded, isLoading = false, compact = fa
     }
 
     setIsProcessing(true);
+    try { onProcessingChange?.(true); } catch {}
     
     try {
       const result = await parseEsbCsv(file);
@@ -70,6 +72,7 @@ export function EsbCsvUpload({ onReadingsLoaded, isLoading = false, compact = fa
       });
     } finally {
       setIsProcessing(false);
+      try { onProcessingChange?.(false); } catch {}
     }
   }, [onReadingsLoaded]);
 
@@ -98,8 +101,7 @@ export function EsbCsvUpload({ onReadingsLoaded, isLoading = false, compact = fa
           Upload ESB Smart Meter Data
         </CardTitle>
         <CardDescription>
-          Upload your ESB CSV export to analyze electricity usage patterns and predict future bills.
-          Download your data from ESB Networks online account.
+          Upload your ESB CSV to analyze usage and predict bills.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

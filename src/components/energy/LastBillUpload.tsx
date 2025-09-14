@@ -11,9 +11,10 @@ import { formatCurrency } from '@/utils/dateUtils';
 interface LastBillUploadProps {
   onTariffExtracted: (tariff: TariffRates) => void;
   isLoading?: boolean;
+  onProcessingChange?: (loading: boolean) => void;
 }
 
-export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBillUploadProps) {
+export function LastBillUpload({ onTariffExtracted, isLoading = false, onProcessingChange }: LastBillUploadProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadResult, setUploadResult] = useState<{
@@ -48,6 +49,7 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
     }
 
     setIsProcessing(true);
+    try { onProcessingChange?.(true); } catch {}
     
     try {
       const result = await parseBillPdf(file);
@@ -71,6 +73,7 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
       });
     } finally {
       setIsProcessing(false);
+      try { onProcessingChange?.(false); } catch {}
     }
   }, [onTariffExtracted]);
 
@@ -111,15 +114,14 @@ export function LastBillUpload({ onTariffExtracted, isLoading = false }: LastBil
           </div>
         </CardTitle>
         <CardDescription>
-          Upload your most recent electricity bill PDF or clear photo to extract tariff rates and billing information.
-          This helps us predict future bills more accurately.
+          Upload your latest bill (PDF or photo) to extract tariff rates.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {isProcessing && (
           <div className="space-y-2" aria-live="polite">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              Extracting tariff information...
+              Extracting tariff information with AI…
             </div>
           </div>
         )}

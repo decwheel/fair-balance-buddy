@@ -1975,7 +1975,8 @@ const Index = () => {
         {state.step === 'energy' && (
           <div className="max-w-4xl mx-auto space-y-6">
             <div className="rounded-md border p-4">
-              <p className="text-sm font-medium mb-2">Electricity prediction method</p>
+              <p className="text-sm font-medium mb-2">Electricity forecast</p>
+              <p className="text-xs text-muted-foreground mb-3">We use your smart‑meter data (usage) and a recent bill (rates) to predict your electricity costs.</p>
               <div className="flex flex-wrap gap-4 text-sm">
                 {([
                   { key: 'csv', label: 'Smart-meter CSV + last bill' },
@@ -1994,16 +1995,25 @@ const Index = () => {
                 ))}
               </div>
               <div className="mt-4">
-                <ElectricityUpload onDone={({ readings, tariff }) => setState(prev => ({ ...prev, electricityReadings: readings as any, tariffRates: tariff || prev.tariffRates }))} />
+                <ElectricityUpload
+                  onDone={({ readings, tariff }) => setState(prev => ({ ...prev, electricityReadings: readings as any, tariffRates: tariff || prev.tariffRates }))}
+                  onBusyChange={(busy)=> setState(prev => ({ ...prev, isLoading: busy }))}
+                />
               </div>
             </div>
 
             <div className="h-20" />
             <div className="sticky bottom-0 inset-x-0">
               <div className="safe-area-bottom bg-background/95 backdrop-blur border-t shadow-md px-4 py-3">
-                <Button className="w-full" onClick={() => setState(prev => ({ ...prev, step: 'forecast' }))}>
-                  Continue to Forecast
-                </Button>
+                {(() => {
+                  const ready = (state.electricityReadings.length > 0) && !!state.tariffRates;
+                  const busy = !!state.isLoading;
+                  return (
+                    <Button className="w-full" disabled={busy || !ready} onClick={() => setState(prev => ({ ...prev, step: 'forecast' }))}>
+                      {busy ? 'Processing electricity data…' : (ready ? 'Continue to Forecast' : 'Upload CSV + bill to continue')}
+                    </Button>
+                  );
+                })()}
               </div>
             </div>
           </div>
