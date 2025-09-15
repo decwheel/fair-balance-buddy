@@ -151,6 +151,9 @@ Deno.serve(async (req) => {
   }
 
   try {
+    // Timebox the OpenAI call to avoid hanging the client if upstream stalls
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 45_000);
     const resp = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -163,7 +166,9 @@ Deno.serve(async (req) => {
         temperature: 0.2,
         response_format: { type: "json_object" },
       }),
+      signal: ac.signal,
     });
+    clearTimeout(timer);
 
     if (!resp.ok) {
       const t = await resp.text();

@@ -1,5 +1,18 @@
 import { parseBillWithAI } from './billAi';
 
+// Utility: timebox async work to avoid indefinite spinners if a step stalls
+async function withTimeout<T>(p: Promise<T>, ms: number, label = 'operation'): Promise<T> {
+  let t: any;
+  const timeout = new Promise<never>((_, rej) => {
+    t = setTimeout(() => rej(new Error(`${label}_timeout`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export interface DiscountRules {
   unitRatePercent?: number;         // e.g., 0.10 for 10% off unit rates
   standingChargePercent?: number;   // e.g., 0.10 for 10% off standing charge
@@ -42,53 +55,58 @@ export interface BillPdfParseResult {
 
 // Mock PDF text extraction for MVP
 export async function extractBillPdfText(file: File): Promise<string> {
-  try {
-    const lower = file.name.toLowerCase();
-    const isPdf = file.type.includes('pdf') || lower.endsWith('.pdf');
-
-    if (!isPdf) {
-      // Not a PDF: try to read as text (may be empty for images)
-      try {
-        return await file.text();
-      } catch {
-        return '';
-      }
-    }
-
-    // Read PDF bytes
-    const data = await file.arrayBuffer();
-
-    // Lazy-load pdf.js to keep bundle light
-    const pdfjs: any = await import('pdfjs-dist');
-
-    // Try to spin up a dedicated worker (Vite supports ?worker import)
+  const run = async (): Promise<string> => {
     try {
-      const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?worker')).default;
-      if (pdfjs?.GlobalWorkerOptions) {
-        pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
+      const lower = file.name.toLowerCase();
+      const isPdf = file.type.includes('pdf') || lower.endsWith('.pdf');
+
+      if (!isPdf) {
+        // Not a PDF: try to read as text (may be empty for images)
+        try {
+          return await file.text();
+        } catch {
+          return '';
+        }
       }
-    } catch (_) {
-      // Fallback: rely on default worker
+
+      // Read PDF bytes
+      const data = await file.arrayBuffer();
+
+      // Lazy-load pdf.js to keep bundle light
+      const pdfjs: any = await import('pdfjs-dist');
+
+      // Try to spin up a dedicated worker (Vite supports ?worker import)
+      try {
+        const PdfWorker = (await import('pdfjs-dist/build/pdf.worker.min.mjs?worker')).default;
+        if (pdfjs?.GlobalWorkerOptions) {
+          pdfjs.GlobalWorkerOptions.workerPort = new PdfWorker();
+        }
+      } catch (_) {
+        // Fallback: rely on default worker
+      }
+
+      const loadingTask = pdfjs.getDocument({ data });
+      const pdf = await loadingTask.promise;
+
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        const text = content.items
+          .map((it: any) => (typeof it?.str === 'string' ? it.str : typeof it === 'string' ? it : ''))
+          .join(' ');
+        fullText += `\n${text}`;
+      }
+
+      return fullText.trim();
+    } catch (e) {
+      // Final fallback: return empty string to let AI fallback handle it
+      return '';
     }
+  };
 
-    const loadingTask = pdfjs.getDocument({ data });
-    const pdf = await loadingTask.promise;
-
-    let fullText = '';
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      const text = content.items
-        .map((it: any) => (typeof it?.str === 'string' ? it.str : typeof it === 'string' ? it : ''))
-        .join(' ');
-      fullText += `\n${text}`;
-    }
-
-    return fullText.trim();
-  } catch (e) {
-    // Final fallback: return empty string to let AI fallback handle it
-    return '';
-  }
+  // Timebox PDF extraction to avoid UI hanging indefinitely (e.g., worker issues)
+  return await withTimeout(run(), 20_000, 'pdf_text_extract');
 }
 
 export async function parseBillPdf(file: File): Promise<BillPdfParseResult> {
