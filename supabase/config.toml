@@ -2,3 +2,9 @@ project_id = "dzpzwrabieadtgglrvhb"
 
 [functions.create_guest_journey]
 verify_jwt = false
+
+[functions.rotate_journey_secret]
+verify_jwt = false
+
+[functions.extract-tariff]
+verify_jwt = false

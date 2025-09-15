@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { getJourney, getHouseholdId } from '@/lib/journey.ts';
+import { logSecurityEvent } from '@/lib/security';
 
 // Helper function to detect transaction category
 function detectCategory(description: string, amount: number): 'wages' | 'bills' | 'misc' {
@@ -77,6 +78,7 @@ export function useLinkAccount() {
         }
 
         // LIVE: create requisition via Edge Function
+        try { await logSecurityEvent('bank_link_requested', { partner, institutionId: selectedInstitutionId }); } catch {}
         if (!selectedInstitutionId) throw new Error('No institution selected');
         const keys = getJourney();
         const household_id = getHouseholdId();

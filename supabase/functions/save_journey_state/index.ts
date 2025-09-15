@@ -2,8 +2,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
+const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "*";
 const cors = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS"
 };
@@ -48,6 +49,13 @@ serve(async (req) => {
       error: "missing_params"
     }, 400);
   }
+  // Guard patch size to prevent abuse
+  try {
+    const raw = JSON.stringify(patch);
+    if (raw.length > 200_000) {
+      return json({ error: "payload_too_large", message: "Patch too large" }, 413);
+    }
+  } catch {}
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

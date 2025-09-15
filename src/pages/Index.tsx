@@ -274,6 +274,7 @@ function HeaderActions({
                           redirectTo = base;
                         }
                       } catch {}
+                      console.log('[auth] signInWithOtp redirectTo =', redirectTo);
                       await supabase.auth.signInWithOtp({ email: emailVal, options: { emailRedirectTo: redirectTo } });
                       setAuthStep('sent');
                       setResendIn(30);
@@ -312,6 +313,7 @@ function HeaderActions({
                           redirectTo = base;
                         }
                       } catch {}
+                      console.log('[auth] resend signInWithOtp redirectTo =', redirectTo);
                       await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: redirectTo } });
                       setResendIn(30);
                       toast({ description: 'Magic link resent.' });
@@ -509,11 +511,11 @@ const Index = () => {
   const [householdOpen, setHouseholdOpen] = useState(false);
 
   // Handler for managing bank connections from household dialog
-  const handleManageBankConnections = () => {
+  function handleManageBankConnections() {
     setHouseholdOpen(false);
     try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
     setState(prev => ({ ...prev, step: 'bank' }));
-  };
+  }
 
   // New inputs for split pot creation (joint mode)  
   const [newPotNameA, setNewPotNameA] = useState('');

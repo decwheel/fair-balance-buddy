@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Basic CSP for production; adjust if your host sets headers -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' https://*.supabase.co; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'">
     <title>FairSplit - Smart Cash Flow Forecasting</title>
     <meta name="description" content="Smart cash-flow forecasting and bill smoothing for Irish households. Calculate optimal deposits to keep your balance above zero." />
     <meta name="author" content="FairSplit" />

@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { logSecurityEvent } from "@/lib/security";
 
 type JourneyKeys = {
   journey_id: string;
@@ -101,14 +102,38 @@ export async function migrateJourneyToHousehold(): Promise<string | null> {
     if (!keys) return null;
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
-    if (!token) return null;
+    if (!token) {
+      console.warn('[journey] No access token present at migration time');
+      return null;
+    }
+    console.log('[journey] Migrating with keys + token?', {
+      haveJourney: !!keys?.journey_id && !!keys?.journey_secret,
+      journey_id: keys?.journey_id,
+      haveToken: !!token,
+    });
     const { data, error } = await supabase.functions.invoke("migrate_journey_to_household", { body: { ...keys }, headers: { Authorization: `Bearer ${token}` } });
-    if (error) { console.error("[journey] migrate error:", error); return null; }
+    if (error) {
+      console.error("[journey] migrate error (invoke):", error);
+      let details = '';
+      try {
+        details = '\n' + JSON.stringify((error as any), null, 2);
+      } catch {}
+      try { alert(`Migration failed: ${error.message || 'invoke error'}${details}`); } catch {}
+      try { await logSecurityEvent('journey_migration_failed', { error: error.message }, 'medium'); } catch {}
+      return null;
+    }
     const maybeErr = (data as any)?.error as string | undefined;
     const household_id: string | undefined = (data as any)?.household_id || (data as any)?.id;
     if (maybeErr && /already/i.test(maybeErr) && household_id) {
       try { sessionStorage.setItem(H_ID, household_id); } catch {}
+      try { await logSecurityEvent('journey_migrated_already', { household_id }); } catch {}
       return household_id;
+    }
+    if (maybeErr && !/already/i.test(maybeErr)) {
+      console.error("[journey] migrate error (data):", maybeErr, (data as any)?.detail);
+      try { alert(`Migration failed: ${maybeErr}${(data as any)?.detail ? `\n${(data as any)?.detail}` : ''}`); } catch {}
+      try { await logSecurityEvent('journey_migration_failed', { error: maybeErr, detail: (data as any)?.detail }, 'medium'); } catch {}
+      return null;
     }
     if (household_id) {
       try { sessionStorage.setItem(H_ID, household_id); } catch {}
@@ -118,8 +143,12 @@ export async function migrateJourneyToHousehold(): Promise<string | null> {
       try { localStorage.removeItem(J_DATA); } catch {}
       try { sessionStorage.removeItem(P_ID); } catch {}
       try { sessionStorage.removeItem(P_SECRET); } catch {}
+      try { await logSecurityEvent('journey_migrated', { household_id }); } catch {}
       return household_id;
     }
+    // No error but also no household_id
+    console.warn("[journey] migrate returned no error and no household_id", data);
+    try { alert("Migration did not return a household ID. Please try again."); } catch {}
   } catch (e) {
     console.error("[journey] migrate error:", e);
   }
