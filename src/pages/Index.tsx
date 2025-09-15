@@ -69,13 +69,15 @@ function HeaderActions({
   onSignIn, 
   onSignUp, 
   householdOpen, 
-  setHouseholdOpen 
+  setHouseholdOpen,
+  onManageBankConnections
 }: { 
   onTryGuest: () => void; 
   onSignIn: () => void; 
   onSignUp: () => void;
   householdOpen: boolean;
   setHouseholdOpen: (open: boolean) => void;
+  onManageBankConnections: () => void;
 }) {
   const [email, setEmail] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -397,7 +399,7 @@ function HeaderActions({
             </div>
             <div className="flex flex-wrap gap-2 justify-end">
               <Button variant="outline" onClick={() => alert('Invite partner coming soon')}>Invite partner</Button>
-              <Button onClick={handleManageBankConnections}>
+              <Button onClick={onManageBankConnections}>
                 Manage bank connections
               </Button>
             </div>
@@ -2139,6 +2141,7 @@ const Index = () => {
           }}
           householdOpen={householdOpen}
           setHouseholdOpen={setHouseholdOpen}
+          onManageBankConnections={handleManageBankConnections}
         />
 
         <Stepper current={state.step} onNavigate={(k)=> setState(prev => ({ ...prev, step: k }))} />
