@@ -64,7 +64,19 @@ import { useAnnounce } from '@/components/accessibility/LiveAnnouncer';
 import { track } from '@/lib/analytics';
 import { Menu, Home, UserPlus, Link2, Settings as SettingsIcon, LogOut, Save, PlayCircle, LogIn } from 'lucide-react';
 
-function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => void; onSignIn: () => void; onSignUp: () => void }) {
+function HeaderActions({ 
+  onTryGuest, 
+  onSignIn, 
+  onSignUp, 
+  householdOpen, 
+  setHouseholdOpen 
+}: { 
+  onTryGuest: () => void; 
+  onSignIn: () => void; 
+  onSignUp: () => void;
+  householdOpen: boolean;
+  setHouseholdOpen: (open: boolean) => void;
+}) {
   const [email, setEmail] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [authEmail, setAuthEmail] = useState('');
@@ -72,7 +84,6 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
   const [authBusy, setAuthBusy] = useState(false);
   const [otp, setOtp] = useState('');
   const [resendIn, setResendIn] = useState(0);
-  const [householdOpen, setHouseholdOpen] = useState(false);
 
   // (snapshot saver is attached by Index component)
   const { toast } = useToast();
@@ -493,6 +504,14 @@ const Index = () => {
   const [newPotAmount, setNewPotAmount] = useState<number>(0);
   const [newPotTarget, setNewPotTarget] = useState<number | ''>('');
   const [newPotOwner, setNewPotOwner] = useState<'A' | 'B' | 'JOINT'>('A');
+  const [householdOpen, setHouseholdOpen] = useState(false);
+
+  // Handler for managing bank connections from household dialog
+  const handleManageBankConnections = () => {
+    setHouseholdOpen(false);
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+    setState(prev => ({ ...prev, step: 'bank' }));
+  };
 
   // New inputs for split pot creation (joint mode)  
   const [newPotNameA, setNewPotNameA] = useState('');
@@ -501,12 +520,6 @@ const Index = () => {
   const [newPotNameB, setNewPotNameB] = useState('');
   const [newPotAmountB, setNewPotAmountB] = useState<number>(0);
   const [newPotTargetB, setNewPotTargetB] = useState<number | ''>('');
-
-  const handleManageBankConnections = () => {
-    setHouseholdOpen(false);
-    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
-    setState(prev => ({ ...prev, step: 'bank' }));
-  };
   const [showBillWizard, setShowBillWizard] = useState(false);
   const [dateMoves, setDateMoves] = useState<Array<{ name: string; fromISO: string; toISO: string }>>([]);
   // Live budget preview + binding mode for two-way coupling between allowances and pots
@@ -2124,6 +2137,8 @@ const Index = () => {
             await supabase.auth.signInWithOtp({ email });
             alert('Check your email to complete sign up.');
           }}
+          householdOpen={householdOpen}
+          setHouseholdOpen={setHouseholdOpen}
         />
 
         <Stepper current={state.step} onNavigate={(k)=> setState(prev => ({ ...prev, step: k }))} />
