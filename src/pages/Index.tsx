@@ -40,6 +40,12 @@ import { persistBills } from '@/services/supabaseBills';
 import { rollForwardPastBills } from '@/utils/billUtils';
 import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
+import { ensureGuestJourney, saveJourney, getLocalJourneyState, getHouseholdId, loadNormalizedData } from '@/lib/journey.ts';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { expandRecurring } from '../lib/expandRecurring';
 import { Stepper } from '@/components/Stepper';
 import { BillsList } from '@/components/BillsList';
@@ -56,6 +62,261 @@ import { SavingsPanel } from '@/components/SavingsPanel';
 import { CashflowSummary } from '@/components/CashflowSummary';
 import { useAnnounce } from '@/components/accessibility/LiveAnnouncer';
 import { track } from '@/lib/analytics';
+import { Menu, Home, UserPlus, Link2, Settings as SettingsIcon, LogOut, Save, PlayCircle, LogIn } from 'lucide-react';
+
+function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => void; onSignIn: () => void; onSignUp: () => void }) {
+  const [email, setEmail] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authStep, setAuthStep] = useState<'form'|'sent'|'code'|'done'>('form');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [resendIn, setResendIn] = useState(0);
+  const { toast } = useToast();
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
+    const sub = supabase.auth.onAuthStateChange(async (evt) => {
+      if (evt.event === 'SIGNED_IN' || evt.event === 'USER_UPDATED' || evt.event === 'TOKEN_REFRESHED') {
+        const { data } = await supabase.auth.getUser();
+        setEmail(data.user?.email ?? null);
+      }
+      if (evt.event === 'SIGNED_OUT') setEmail(null);
+    });
+    return () => { try { sub.data.subscription.unsubscribe(); } catch {} };
+  }, []);
+
+  // (removed mistakenly inserted normalized-data effect; handled in Index component)
+
+
+  const hasJourney = (() => { try { return !!localStorage.getItem('journey_id'); } catch { return false; } })();
+
+  return (
+    <div className="relative mb-8">
+      {/* Centered title */}
+      <div className="flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">FairSplit</h1>
+          <p className="text-sm text-muted-foreground">Smart cash-flow and fair deposits.</p>
+        </div>
+      </div>
+
+      {/* Right-side controls */}
+      <div className="absolute right-0 top-0 h-10 flex items-center gap-2">
+        {!email && !hasJourney && (
+          <>
+            {/* Inline buttons only on ≥sm screens */}
+            <div className="hidden sm:flex items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={onTryGuest}>
+                <PlayCircle className="mr-2 h-4 w-4" /> Try it
+              </Button>
+              <Button size="sm" onClick={() => setAuthOpen(true)}>
+                <LogIn className="mr-2 h-4 w-4" /> Sign in
+              </Button>
+            </div>
+            {/* Hamburger menu for small screens */}
+            <Sheet>
+              <SheetTrigger asChild>
+                <Button size="icon" variant="ghost" aria-label="Menu">
+                  <Menu className="h-5 w-5" />
+                </Button>
+              </SheetTrigger>
+              <SheetContent side="right" className="w-64">
+                <div className="space-y-2 mt-4">
+                  <Button className="w-full justify-start" variant="secondary" onClick={onTryGuest}>
+                    <PlayCircle className="mr-2 h-4 w-4" /> Try it without an account
+                  </Button>
+                  <Button className="w-full justify-start" onClick={() => setAuthOpen(true)}>
+                    <LogIn className="mr-2 h-4 w-4" /> Sign in
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
+          </>
+        )}
+        {!email && hasJourney && (
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button size="icon" variant="ghost" aria-label="Menu">
+                <Menu className="h-5 w-5" />
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="w-64">
+              <div className="space-y-2 mt-4">
+                <Button className="w-full justify-start" onClick={() => setAuthOpen(true)}>
+                  <Save className="mr-2 h-4 w-4" /> Save progress (Sign up)
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
+        )}
+        {!!email && (
+          <>
+            {/* Mobile: hamburger sheet */}
+            <div className="sm:hidden">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button size="icon" variant="ghost" aria-label="Menu">
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="right" className="w-64">
+                  <div className="space-y-2 mt-4">
+                    <Button className="w-full justify-start" variant="ghost" onClick={() => alert('Household details coming soon')}>
+                      <Home className="mr-2 h-4 w-4" /> Household
+                    </Button>
+                    <Button className="w-full justify-start" variant="ghost" onClick={() => alert('Invite partner coming soon')}>
+                      <UserPlus className="mr-2 h-4 w-4" /> Invite partner
+                    </Button>
+                    <Button className="w-full justify-start" variant="ghost" onClick={() => { try { (window as any).scrollTo({ top: 0, behavior: 'smooth' }); } catch {} }}>
+                      <Link2 className="mr-2 h-4 w-4" /> Bank connections
+                    </Button>
+                    <Button className="w-full justify-start" variant="ghost" onClick={() => alert('Settings coming soon')}>
+                      <SettingsIcon className="mr-2 h-4 w-4" /> Settings
+                    </Button>
+                    <Button className="w-full justify-start" variant="destructive" onClick={async () => { try { await supabase.auth.signOut(); } catch (e) { console.warn(e); } }}>
+                      <LogOut className="mr-2 h-4 w-4" /> Sign out
+                    </Button>
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </div>
+
+            {/* Desktop/tablet: avatar dropdown */}
+            <div className="hidden sm:flex">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <div className="flex items-center gap-2 cursor-pointer select-none">
+                    <Avatar className="h-8 w-8"><AvatarFallback>{(email[0] || 'U').toUpperCase()}</AvatarFallback></Avatar>
+                    <span className="text-sm hidden sm:inline">{email}</span>
+                  </div>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => alert('Household details coming soon')}>
+                    <Home className="mr-2 h-4 w-4" /> <span>Household</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => alert('Invite partner coming soon')}>
+                    <UserPlus className="mr-2 h-4 w-4" /> <span>Invite partner</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => { try { (window as any).scrollTo({ top: 0, behavior: 'smooth' }); } catch {} }}>
+                    <Link2 className="mr-2 h-4 w-4" /> <span>Bank connections</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => alert('Settings coming soon')}>
+                    <SettingsIcon className="mr-2 h-4 w-4" /> <span>Settings</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={async () => { try { await supabase.auth.signOut(); } catch (e) { console.warn(e); } }}>
+                    <LogOut className="mr-2 h-4 w-4" /> <span>Sign out</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </>
+        )}
+      </div>
+      {/* Auth dialog for email-based OTP sign-in/sign-up */}
+      <Dialog open={authOpen} onOpenChange={(v)=>{ setAuthOpen(v); if (!v){ setAuthStep('form'); setAuthEmail(''); setOtp(''); setResendIn(0);} }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {authStep === 'form' && 'Enter your email'}
+              {authStep === 'sent' && 'Magic link sent'}
+              {authStep === 'code' && 'Enter verification code'}
+              {authStep === 'done' && 'Signed in'}
+            </DialogTitle>
+          </DialogHeader>
+          {authStep === 'form' && (
+            <div className="space-y-3">
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                value={authEmail}
+                onChange={(e)=> setAuthEmail(e.target.value)}
+                autoFocus
+              />
+              <div className="flex justify-between items-center">
+                <div className="text-xs text-muted-foreground">We’ll send you a magic link.</div>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={()=> setAuthOpen(false)}>Cancel</Button>
+                  <Button size="sm" disabled={authBusy || !authEmail} onClick={async ()=>{
+                    const emailVal = (authEmail || '').trim();
+                    if (!emailVal) return;
+                    try {
+                      setAuthBusy(true);
+                      await supabase.auth.signInWithOtp({ email: emailVal });
+                      setAuthStep('sent');
+                      setResendIn(30);
+                      toast({ description: 'Magic link sent. Check your email.' });
+                      // start resend cooldown
+                      const timer = setInterval(()=> setResendIn((s)=>{ if (s<=1){ clearInterval(timer); return 0;} return s-1; }), 1000);
+                    } catch (e) {
+                      console.warn(e);
+                      toast({ description: 'Failed to send email. Try again.', variant: 'destructive' });
+                    } finally { setAuthBusy(false); }
+                  }}>Continue</Button>
+                </div>
+              </div>
+            </div>
+          )}
+          {authStep === 'sent' && (
+            <div className="space-y-3">
+              <p className="text-sm">We sent a magic link to <span className="font-medium">{authEmail}</span>. Open it on this device to finish signing in.</p>
+              <div className="flex flex-wrap gap-2 justify-between">
+                <Button size="sm" variant="secondary" onClick={()=> setAuthStep('form')}>Change email</Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="outline" onClick={()=> setAuthStep('code')}>Use code instead</Button>
+                  <Button size="sm" disabled={resendIn>0 || authBusy} onClick={async ()=>{
+                    try {
+                      setAuthBusy(true);
+                      await supabase.auth.signInWithOtp({ email: authEmail });
+                      setResendIn(30);
+                      toast({ description: 'Magic link resent.' });
+                    } finally { setAuthBusy(false);} 
+                  }}>{resendIn>0? `Resend (${resendIn})` : 'Resend'}</Button>
+                </div>
+              </div>
+            </div>
+          )}
+          {authStep === 'code' && (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">Enter the 6‑digit code from your email for {authEmail}.</p>
+              <div className="flex justify-center">
+                <InputOTP maxLength={6} value={otp} onChange={setOtp}>
+                  <InputOTPGroup>
+                    <InputOTPSlot index={0} />
+                    <InputOTPSlot index={1} />
+                    <InputOTPSlot index={2} />
+                    <InputOTPSlot index={3} />
+                    <InputOTPSlot index={4} />
+                    <InputOTPSlot index={5} />
+                  </InputOTPGroup>
+                </InputOTP>
+              </div>
+              <div className="flex justify-between">
+                <Button size="sm" variant="secondary" onClick={()=> setAuthStep('sent')}>Back</Button>
+                <Button size="sm" disabled={otp.length!==6 || authBusy} onClick={async ()=>{
+                  try {
+                    setAuthBusy(true);
+                    await supabase.auth.verifyOtp({ email: authEmail, token: otp, type: 'email' });
+                    toast({ description: 'Signed in.' });
+                    setAuthStep('done');
+                    setTimeout(()=> setAuthOpen(false), 600);
+                  } catch (e) {
+                    console.warn(e);
+                    toast({ description: 'Invalid code. Try again.', variant: 'destructive' });
+                  } finally { setAuthBusy(false); }
+                }}>Verify</Button>
+              </div>
+            </div>
+          )}
+          {authStep === 'done' && (
+            <div className="space-y-2">
+              <p className="text-sm">You are signed in.</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
 
 // Hoisted helper for salary candidate -> monthly euros
 function toMonthlySalary(s?: SalaryCandidate): number | undefined {
@@ -186,6 +447,7 @@ const Index = () => {
   const [openSheetFor, setOpenSheetFor] = useState<'A'|'B'|null>(null);
   const [bankInfoA, setBankInfoA] = useState<BankInfo | undefined>(undefined);
   const [bankInfoB, setBankInfoB] = useState<BankInfo | undefined>(undefined);
+  const [householdBannerId, setHouseholdBannerId] = useState<string | null>(null);
 
   // Helper: cycles per month for presenting monthly-equivalents
   const cyclesPerMonth = (freq?: string) => {
@@ -747,6 +1009,17 @@ const Index = () => {
       const txA = partner === 'A' ? transactions : (state.userA?.transactions ?? []);
       const txB = partner === 'B' ? transactions : (state.userB?.transactions ?? []);
       (window as any).__runDetection?.(txA, txB);
+      // Persist bank linkage step for guest journey
+      try {
+        saveJourney({
+          step: 'bank-link',
+          partner,
+          linkedA: partner === 'A' ? true : state.linkedA,
+          linkedB: partner === 'B' ? true : state.linkedB,
+          payScheduleA: partner === 'A' ? pay : state.userA?.paySchedule ?? null,
+          payScheduleB: partner === 'B' ? pay : state.userB?.paySchedule ?? null,
+        }).catch(()=>{});
+      } catch {}
     };
 
     window.addEventListener('gc:transactions' as any, onTx);
@@ -794,12 +1067,128 @@ const Index = () => {
         nextState.userA.transactions ?? [],
         nextState.userB?.transactions ?? []
       );
+      // Persist pull completion
+      try {
+        saveJourney({
+          step: 'bank-pull',
+          partner,
+          requisitionId,
+          linkedA: nextState.linkedA,
+          linkedB: nextState.linkedB,
+          payScheduleA: nextState.userA.paySchedule,
+          payScheduleB: nextState.userB?.paySchedule ?? null,
+        }).catch(()=>{});
+      } catch {}
     };
 
     window.addEventListener('message', handler);
     const bc = new BroadcastChannel('fair-balance-buddy');
     bc.onmessage = handler as any;
     return () => { window.removeEventListener('message', handler); bc.close(); };
+  }, []);
+
+  // On mount: if we already have a household_id (post-migration), load normalized data and apply to UI
+  useEffect(() => {
+    const hid = getHouseholdId();
+    if (!hid) return;
+    setHouseholdBannerId(() => {
+      try { return sessionStorage.getItem('household_banner_dismissed') ? null : hid; } catch { return hid; }
+    });
+    (async () => {
+      await loadNormalizedData();
+      try {
+        const raw = sessionStorage.getItem('household_data');
+        if (!raw) return;
+        const data = JSON.parse(raw || '{}');
+        const wd: any[] = Array.isArray(data.wages_detected) ? data.wages_detected : [];
+        const toPS = (r: any) => ({
+          frequency: String(r?.frequency || r?.freq || 'MONTHLY').toUpperCase(),
+          anchorDate: r?.anchor_date || r?.anchorDate || r?.first_pay_date || new Date().toISOString().slice(0,10),
+          averageAmount: Number(r?.average_amount ?? r?.amount ?? r?.per_occurrence ?? 0) || undefined,
+        });
+        const psA = wd[0] ? toPS(wd[0]) : null;
+        const psB = wd[1] ? toPS(wd[1]) : null;
+        const rb: any[] = Array.isArray(data.recurring_bills) ? data.recurring_bills : [];
+        const eb: any[] = Array.isArray(data.electricity_bills) ? data.electricity_bills : [];
+        const mapBill = (r: any, src: 'manual'|'predicted-electricity') => ({
+          id: (r?.id && String(r.id)) || `b_${Math.random().toString(36).slice(2,8)}`,
+          name: r?.name || r?.label || 'Bill',
+          amount: Number(r?.amount ?? r?.value ?? 0) || 0,
+          issueDate: r?.issue_date || r?.due_date || r?.date || new Date().toISOString().slice(0,10),
+          dueDate: r?.due_date || r?.issue_date || r?.date || new Date().toISOString().slice(0,10),
+          source: src,
+          movable: Boolean(r?.movable ?? true),
+        });
+        const bills = [...rb.map((r) => mapBill(r, 'manual')), ...eb.map((r) => mapBill(r, 'predicted-electricity'))];
+        const included = bills.map(b => b.id!);
+        setState(prev => ({
+          ...prev,
+          mode: psB ? 'joint' : 'single',
+          userA: { transactions: [], paySchedule: psA },
+          userB: psB ? { transactions: [], paySchedule: psB } as any : prev.userB,
+          linkedA: !!psA,
+          linkedB: !!psB,
+          bills,
+          includedBillIds: included,
+          step: 'forecast',
+        }));
+        try { usePlanStore.getState().setDetected(undefined as any); } catch {}
+        setTimeout(() => { try { (window as any).__runDetection?.([], []); } catch {} }, 0);
+      } catch (e) { console.warn('Failed to apply normalized data', e); }
+    })();
+  }, []);
+
+  // Listen for migration event to apply normalized data immediately
+  useEffect(() => {
+    const onMigrated = async (e: any) => {
+      const hid = e?.detail?.household_id || getHouseholdId();
+      if (!hid) return;
+    setHouseholdBannerId(() => {
+      try { return sessionStorage.getItem('household_banner_dismissed') ? null : hid; } catch { return hid; }
+    });
+      await loadNormalizedData();
+      try {
+        const raw = sessionStorage.getItem('household_data');
+        if (!raw) return;
+        const data = JSON.parse(raw || '{}');
+        const wd: any[] = Array.isArray(data.wages_detected) ? data.wages_detected : [];
+        const toPS = (r: any) => ({
+          frequency: String(r?.frequency || r?.freq || 'MONTHLY').toUpperCase(),
+          anchorDate: r?.anchor_date || r?.anchorDate || r?.first_pay_date || new Date().toISOString().slice(0,10),
+          averageAmount: Number(r?.average_amount ?? r?.amount ?? r?.per_occurrence ?? 0) || undefined,
+        });
+        const psA = wd[0] ? toPS(wd[0]) : null;
+        const psB = wd[1] ? toPS(wd[1]) : null;
+        const rb: any[] = Array.isArray(data.recurring_bills) ? data.recurring_bills : [];
+        const eb: any[] = Array.isArray(data.electricity_bills) ? data.electricity_bills : [];
+        const mapBill = (r: any, src: 'manual'|'predicted-electricity') => ({
+          id: (r?.id && String(r.id)) || `b_${Math.random().toString(36).slice(2,8)}`,
+          name: r?.name || r?.label || 'Bill',
+          amount: Number(r?.amount ?? r?.value ?? 0) || 0,
+          issueDate: r?.issue_date || r?.due_date || r?.date || new Date().toISOString().slice(0,10),
+          dueDate: r?.due_date || r?.issue_date || r?.date || new Date().toISOString().slice(0,10),
+          source: src,
+          movable: Boolean(r?.movable ?? true),
+        });
+        const bills = [...rb.map((r) => mapBill(r, 'manual')), ...eb.map((r) => mapBill(r, 'predicted-electricity'))];
+        const included = bills.map(b => b.id!);
+        setState(prev => ({
+          ...prev,
+          mode: psB ? 'joint' : 'single',
+          userA: { transactions: [], paySchedule: psA },
+          userB: psB ? { transactions: [], paySchedule: psB } as any : prev.userB,
+          linkedA: !!psA,
+          linkedB: !!psB,
+          bills,
+          includedBillIds: included,
+          step: 'forecast',
+        }));
+        try { usePlanStore.getState().setDetected(undefined as any); } catch {}
+        setTimeout(() => { try { (window as any).__runDetection?.([], []); } catch {} }, 0);
+      } catch {}
+    };
+    window.addEventListener('journey:migrated' as any, onMigrated);
+    return () => window.removeEventListener('journey:migrated' as any, onMigrated);
   }, []);
 
 
@@ -827,6 +1216,7 @@ const Index = () => {
       ...prev,
       electricityReadings: readings
     }));
+    try { saveJourney({ step: 'energy-readings', readings }).catch(()=>{}); } catch {}
   };
 
   const handleTariffExtracted = (tariff: TariffRates) => {
@@ -881,6 +1271,8 @@ const Index = () => {
         step: prev.step
       };
     });
+
+    try { saveJourney({ step: 'energy-tariff', tariff, predictedCount: predicted.length }).catch(()=>{}); } catch {}
 
     // Store the electricity bills in the plan store
     if (predicted.length > 0) {
@@ -1417,6 +1809,7 @@ const Index = () => {
           isLoading: false,
           step: 'results'
         }));
+        try { saveJourney({ step: 'forecast', weeklyAllowanceA: currentState.weeklyAllowanceA ?? 0, weeklyAllowanceB: currentState.weeklyAllowanceB ?? 0, pots: currentState.pots ?? [] }).catch(()=>{}); } catch {}
         try { track('forecast_run'); announce('Forecast calculated'); } catch {}
       }
     } catch (error) {
@@ -1447,6 +1840,7 @@ const Index = () => {
       const newState = { ...state, bills: updatedBills };
       setBillEditing(null);
       toast({ description: 'Bill updated. Recalculating forecast…' });
+      try { saveJourney({ step: 'bill-edited', id: billEditing.id, patch: { name: values.name, amount: values.amount, dueDate: values.dueDate } }).catch(()=>{}); } catch {}
       runForecast(newState);
       return;
     }
@@ -1468,6 +1862,8 @@ const Index = () => {
       bills: [...state.bills, ...newBills],
       includedBillIds: Array.from(new Set([...state.includedBillIds, ...newBills.map(b => b.id!)]))
     };
+    try { saveJourney({ step: 'bills-added', bills: newBills }).catch(()=>{}); } catch {}
+
 
     // Persist to Supabase if authenticated
     persistBills(newBills.map(nb => ({
@@ -1533,13 +1929,33 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-background to-secondary/20">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl sm:text-4xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent mb-4">
-            FairSplit
-          </h1>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">Smart cash-flow and fair deposits.</p>
-        </div>
+
+        {/* Success banner after migration */}
+        {householdBannerId && (
+          <div className="mb-4 rounded-md border bg-green-50 text-green-800 px-4 py-3 flex items-center justify-between">
+            <div>
+              <strong>Success:</strong> Your data has been migrated to household <code>{householdBannerId}</code>.
+            </div>
+            <Button size="sm" variant="outline" onClick={() => { try { sessionStorage.setItem('household_banner_dismissed', '1'); } catch {}; setHouseholdBannerId(null); }}>Dismiss</Button>
+          </div>
+        )}
+
+        {/* Header with auth/journey states */}
+        <HeaderActions
+          onTryGuest={async () => { await ensureGuestJourney(); }}
+          onSignIn={async () => {
+            const email = window.prompt('Enter your email to sign in');
+            if (!email) return;
+            await supabase.auth.signInWithOtp({ email });
+            alert('Check your email for the sign-in link.');
+          }}
+          onSignUp={async () => {
+            const email = window.prompt('Enter your email to save your progress');
+            if (!email) return;
+            await supabase.auth.signInWithOtp({ email });
+            alert('Check your email to complete sign up.');
+          }}
+        />
 
         <Stepper current={state.step} onNavigate={(k)=> setState(prev => ({ ...prev, step: k }))} />
 
@@ -2114,10 +2530,10 @@ const Index = () => {
                     availableA={budgetPreview.availableA}
                     availableB={budgetPreview.availableB}
                     pots={state.pots}
-                    onChangeAllowance={(a,b)=> setState(prev=>({ ...prev, weeklyAllowanceA: a, weeklyAllowanceB: typeof b==='number'? b : prev.weeklyAllowanceB }))}
-                    onAddPot={(name, monthly, owner, target)=> handleAddPot(name, monthly, owner, target)}
-                    onUpdatePot={(id, patch)=> setState(prev => ({ ...prev, pots: prev.pots.map(p => p.id === id ? { ...p, ...patch } : p) }))}
-                    onRemovePot={(id)=> setState(prev => ({ ...prev, pots: prev.pots.filter(p => p.id !== id) }))}
+                    onChangeAllowance={(a,b)=> { setState(prev=>({ ...prev, weeklyAllowanceA: a, weeklyAllowanceB: typeof b==='number'? b : prev.weeklyAllowanceB })); try { saveJourney({ step: 'forecast-allowances', weeklyAllowanceA: a, weeklyAllowanceB: b }).catch(()=>{}); } catch {} }}
+                    onAddPot={(name, monthly, owner, target)=> { handleAddPot(name, monthly, owner, target); try { saveJourney({ step: 'forecast-pots', action: 'add', pot: { name, monthly, owner, target } }).catch(()=>{}); } catch {} }}
+                    onUpdatePot={(id, patch)=> { setState(prev => ({ ...prev, pots: prev.pots.map(p => p.id === id ? { ...p, ...patch } : p) })); try { saveJourney({ step: 'forecast-pots', action: 'update', id, patch }).catch(()=>{}); } catch {} }}
+                    onRemovePot={(id)=> { setState(prev => ({ ...prev, pots: prev.pots.filter(p => p.id !== id) })); try { saveJourney({ step: 'forecast-pots', action: 'remove', id }).catch(()=>{}); } catch {} }}
                     upcoming={upcoming}
                   />
                 );
@@ -3377,6 +3793,7 @@ const Index = () => {
               toISO: s.suggestedDate
             }));
             if (moves.length === 0) { setShowBillWizard(false); return; }
+            try { saveJourney({ step: 'bills-moved', moves }).catch(()=>{}); } catch {}
             // Clear suggestions while recomputing to avoid flicker of stale entries
             try {
               const cur = usePlanStore.getState().result;

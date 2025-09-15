@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { getJourney, getHouseholdId } from '@/lib/journey.ts';
 
 // Helper function to detect transaction category
 function detectCategory(description: string, amount: number): 'wages' | 'bills' | 'misc' {
@@ -77,8 +78,10 @@ export function useLinkAccount() {
 
         // LIVE: create requisition via Edge Function
         if (!selectedInstitutionId) throw new Error('No institution selected');
+        const keys = getJourney();
+        const household_id = getHouseholdId();
         const { data, error } = await supabase.functions.invoke('gc_create_link', {
-          body: { institutionId: selectedInstitutionId, partner },
+          body: { institutionId: selectedInstitutionId, partner, journey_id: keys?.journey_id, household_id: household_id || undefined },
         });
         if (error) {
           const more = (error as any)?.context || (error as any)?.hint || JSON.stringify(error);

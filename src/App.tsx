@@ -22,6 +22,8 @@ import { expandRecurring } from "./lib/expandRecurring";
 import { ThemeProvider } from "next-themes";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { ScrollToTop } from "./components/ScrollToTop";
+import { ensureGuestJourney, migrateJourneyToHousehold, loadNormalizedData, saveJourney } from "@/lib/journey.ts";
+import { supabase } from "./integrations/supabase/client";
 
 const queryClient = new QueryClient();
 
@@ -71,6 +73,23 @@ function App() {
     ping: () => Promise<string>;
   } | null>(null);
   const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    // Ensure a guest journey exists for unauthenticated visitors
+    ensureGuestJourney().catch(() => {});
+
+    // If user signs in and a guest journey exists → migrate it
+    const sub = supabase.auth.onAuthStateChange(async (evt) => {
+      if (evt.event === 'SIGNED_IN') {
+        const migrated = await migrateJourneyToHousehold();
+        if (migrated) {
+          await loadNormalizedData();
+          try { window.dispatchEvent(new CustomEvent('journey:migrated', { detail: { household_id: migrated } } as any)); } catch {}
+        }
+      }
+    });
+    return () => { try { sub.data.subscription.unsubscribe(); } catch {} };
+  }, []);
 
   useEffect(() => {
     // Spawn the web worker once (Vite's ?worker)
@@ -216,6 +235,21 @@ function App() {
 
     setInputs(inputsUpdate);
     await recalc();
+
+    // Persist detection step for guests
+    try {
+      await saveJourney({
+        step: 'bank-detections',
+        mode: inputsUpdate.mode,
+        detected: {
+          salariesA: (resA.salaries ?? []).slice(0, 5),
+          recurringA: (resA.recurring ?? []).slice(0, 50),
+          salariesB: (resB?.salaries ?? []).slice(0, 5),
+          recurringB: (resB?.recurring ?? []).slice(0, 50),
+        },
+        inputs: inputsUpdate,
+      });
+    } catch {}
   };
 
 
