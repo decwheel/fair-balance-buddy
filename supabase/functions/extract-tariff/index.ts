@@ -5,16 +5,38 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
-// CORS headers for browser calls
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "*";
-const corsHeaders = {
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-};
+// CORS helpers: allow multiple origins and echo back the request origin when allowed
+function getCorsHeaders(req: Request) {
+  const envList = Deno.env.get("ALLOWED_ORIGINS") || Deno.env.get("ALLOWED_ORIGIN") || "*";
+  const allowlist = envList.split(",").map((s) => s.trim()).filter(Boolean);
+  const reqOrigin = req.headers.get("origin") || "";
+  const allowAll = allowlist.includes("*");
 
-function json(body: unknown, init?: ResponseInit) {
-  const base: ResponseInit = { headers: { ...corsHeaders, "Content-Type": "application/json" } };
+  // Default allowlist for local dev if nothing configured (keeps old behaviour working locally)
+  const defaults = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+  ];
+
+  // Even when an allowlist is configured, include localhost defaults to keep local dev working
+  const effectiveList = allowlist.length === 0 ? defaults : Array.from(new Set([...allowlist, ...defaults]));
+  const originToAllow = allowAll ? (reqOrigin || "*") : (effectiveList.includes(reqOrigin) ? reqOrigin : effectiveList[0] || "*");
+
+  return {
+    "Access-Control-Allow-Origin": originToAllow,
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    // Help caches vary on Origin to avoid leaking CORS across sites
+    "Vary": "Origin",
+  } as Record<string, string>;
+}
+
+function json(req: Request, body: unknown, init?: ResponseInit) {
+  const cors = getCorsHeaders(req);
+  const base: ResponseInit = { headers: { ...cors, "Content-Type": "application/json" } };
   return new Response(JSON.stringify(body), { ...base, ...init, headers: { ...base.headers, ...(init?.headers || {}) } });
 }
 
@@ -42,7 +64,7 @@ interface BillPdfParseResult {
 Deno.serve(async (req) => {
   // Preflight
   if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+    return new Response(null, { headers: getCorsHeaders(req) });
   }
 
   // Cope with environments that pass a relative URL; fall back to string search
@@ -56,11 +78,11 @@ Deno.serve(async (req) => {
   const isStatusCheck = req.method === "GET" && (url?.searchParams.get("status") !== null || req.url.includes("status="));
   if (isStatusCheck) {
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
-    return json({ ok: true, function: "extract-tariff", hasOpenAIKey: Boolean(OPENAI_API_KEY) });
+    return json(req, { ok: true, function: "extract-tariff", hasOpenAIKey: Boolean(OPENAI_API_KEY) });
   }
 
   if (req.method !== "POST") {
-    return new Response("Method Not Allowed", { status: 405, headers: corsHeaders });
+    return new Response("Method Not Allowed", { status: 405, headers: getCorsHeaders(req) });
   }
   const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 
@@ -68,28 +90,28 @@ Deno.serve(async (req) => {
   try {
     body = await req.json();
   } catch (_) {
-    return json({ error: "Invalid JSON body" }, { status: 400 });
+    return json(req, { error: "Invalid JSON body" }, { status: 400 });
   }
 
   const { text, imageBase64, filename } = body as { text?: string; imageBase64?: string; filename?: string };
   if (!text && !imageBase64) {
-    return json({ error: "Provide either `text` or `imageBase64`" }, { status: 400 });
+    return json(req, { error: "Provide either `text` or `imageBase64`" }, { status: 400 });
   }
   // Guards to prevent abuse
   const MAX_TEXT_CHARS = 200_000; // ~200 KB
   const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
   if (typeof text === 'string' && text.length > MAX_TEXT_CHARS) {
-    return json({ error: "payload_too_large", message: "Text exceeds limit" }, { status: 413 });
+    return json(req, { error: "payload_too_large", message: "Text exceeds limit" }, { status: 413 });
   }
   if (typeof imageBase64 === 'string') {
     if (!imageBase64.startsWith('data:')) {
-      return json({ error: "invalid_image", message: "Expected data URL" }, { status: 400 });
+      return json(req, { error: "invalid_image", message: "Expected data URL" }, { status: 400 });
     }
     const comma = imageBase64.indexOf(',');
     const b64 = comma >= 0 ? imageBase64.slice(comma + 1) : imageBase64;
     const estimatedBytes = Math.floor((b64.length * 3) / 4);
     if (estimatedBytes > MAX_IMAGE_BYTES) {
-      return json({ error: "payload_too_large", message: "Image exceeds limit" }, { status: 413 });
+      return json(req, { error: "payload_too_large", message: "Image exceeds limit" }, { status: 413 });
     }
   }
 
@@ -114,11 +136,11 @@ Deno.serve(async (req) => {
 
   // Status check without calling OpenAI
   if (text === "STATUS_CHECK") {
-    return json({ ok: true, function: "extract-tariff", hasOpenAIKey: Boolean(OPENAI_API_KEY) });
+    return json(req, { ok: true, function: "extract-tariff", hasOpenAIKey: Boolean(OPENAI_API_KEY) });
   }
 
   if (!OPENAI_API_KEY) {
-    return json({ error: "Missing OPENAI_API_KEY secret" }, { status: 500 });
+    return json(req, { error: "Missing OPENAI_API_KEY secret" }, { status: 500 });
   }
 
   try {
@@ -138,7 +160,7 @@ Deno.serve(async (req) => {
 
     if (!resp.ok) {
       const t = await resp.text();
-      return json({ error: "OpenAI error", detail: t }, { status: 500 });
+      return json(req, { error: "OpenAI error", detail: t }, { status: 500 });
     }
 
     const data = await resp.json();
@@ -148,7 +170,7 @@ Deno.serve(async (req) => {
     try {
       parsed = JSON.parse(content);
     } catch (e) {
-      return json({ error: "Failed to parse model JSON", raw: content }, { status: 500 });
+      return json(req, { error: "Failed to parse model JSON", raw: content }, { status: 500 });
     }
 
     // Basic normalization
@@ -178,8 +200,8 @@ Deno.serve(async (req) => {
       errors,
     };
 
-    return json(result);
+    return json(req, result);
   } catch (err) {
-    return json({ error: "Unexpected error", detail: String(err) }, { status: 500 });
+    return json(req, { error: "Unexpected error", detail: String(err) }, { status: 500 });
   }
 });
