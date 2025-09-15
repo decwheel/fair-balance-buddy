@@ -82,8 +82,8 @@ function App() {
     try { storePendingJourneyInSessionFromUrl(); } catch {}
 
     // If user signs in and a guest journey exists → migrate it
-    const sub = supabase.auth.onAuthStateChange(async (evt) => {
-      if (evt.event === 'SIGNED_IN' || evt.event === 'INITIAL_SESSION') {
+    const sub = supabase.auth.onAuthStateChange(async (evt, session) => {
+      if (evt === 'SIGNED_IN' || evt === 'INITIAL_SESSION') {
         const migrated = await migrateJourneyToHousehold();
         if (migrated) {
           await loadNormalizedData();

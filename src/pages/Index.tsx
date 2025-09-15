@@ -78,14 +78,14 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
   const { toast } = useToast();
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
-    const sub = supabase.auth.onAuthStateChange(async (evt) => {
-      if (evt.event === 'SIGNED_IN' || evt.event === 'USER_UPDATED' || evt.event === 'TOKEN_REFRESHED') {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (evt, session) => {
+      if (evt === 'SIGNED_IN' || evt === 'USER_UPDATED' || evt === 'TOKEN_REFRESHED') {
         const { data } = await supabase.auth.getUser();
         setEmail(data.user?.email ?? null);
       }
-      if (evt.event === 'SIGNED_OUT') setEmail(null);
+      if (evt === 'SIGNED_OUT') setEmail(null);
     });
-    return () => { try { sub.data.subscription.unsubscribe(); } catch {} };
+    return () => { try { subscription.unsubscribe(); } catch {} };
   }, []);
 
   // (removed mistakenly inserted normalized-data effect; handled in Index component)
@@ -1255,8 +1255,20 @@ const Index = () => {
         setState(prev => ({
           ...prev,
           mode: psB ? 'joint' : 'single',
-          userA: { transactions: [], paySchedule: psA },
-          userB: psB ? { transactions: [], paySchedule: psB } as any : prev.userB,
+          userA: { 
+            transactions: [], 
+            paySchedule: psA ? {
+              ...psA,
+              frequency: (psA.frequency as "WEEKLY" | "FORTNIGHTLY" | "BIWEEKLY" | "FOUR_WEEKLY" | "MONTHLY")
+            } : null
+          },
+          userB: psB ? { 
+            transactions: [], 
+            paySchedule: {
+              ...psB,
+              frequency: (psB.frequency as "WEEKLY" | "FORTNIGHTLY" | "BIWEEKLY" | "FOUR_WEEKLY" | "MONTHLY")
+            }
+          } as any : prev.userB,
           linkedA: !!psA,
           linkedB: !!psB,
           bills,
@@ -1306,8 +1318,20 @@ const Index = () => {
         setState(prev => ({
           ...prev,
           mode: psB ? 'joint' : 'single',
-          userA: { transactions: [], paySchedule: psA },
-          userB: psB ? { transactions: [], paySchedule: psB } as any : prev.userB,
+          userA: { 
+            transactions: [], 
+            paySchedule: psA ? {
+              ...psA,
+              frequency: (psA.frequency as "WEEKLY" | "FORTNIGHTLY" | "BIWEEKLY" | "FOUR_WEEKLY" | "MONTHLY")
+            } : null
+          },
+          userB: psB ? { 
+            transactions: [], 
+            paySchedule: {
+              ...psB,
+              frequency: (psB.frequency as "WEEKLY" | "FORTNIGHTLY" | "BIWEEKLY" | "FOUR_WEEKLY" | "MONTHLY")
+            }
+          } as any : prev.userB,
           linkedA: !!psA,
           linkedB: !!psB,
           bills,
@@ -1542,7 +1566,7 @@ const Index = () => {
         const entries: Array<[string, string]> = [];
         for (const m of movesToApply) {
           // Support both id@@from and name@@from keys; some suggestions use fallback ids
-          entries.push([`${m.id || m.name}@@${m.fromISO}`, m.toISO]);
+          entries.push([`${(m as any).id || m.name}@@${m.fromISO}`, m.toISO]);
           entries.push([`${m.name}@@${m.fromISO}`, m.toISO]);
         }
         const map = new Map(entries);
@@ -2399,7 +2423,7 @@ const Index = () => {
                             const meta = (recurringMeta as any)[b.id!];
                             const dayOfWeek = meta?.dayOfWeek as number | undefined;
                             const dueDay = meta?.dueDay as number | undefined;
-                            const freq = meta?.freq ? String(meta.freq).toLowerCase() : (b.dueDay ? 'monthly' : undefined);
+                            const freq = meta?.freq ? String(meta.freq).toLowerCase() : undefined;
                             return ({
                               id: b.id!,
                               dateISO: (b as any).dueDate || (b as any).dueDateISO || (b.issueDate as any) || new Date().toISOString().slice(0,10),
@@ -2643,7 +2667,7 @@ const Index = () => {
                         amount: b.amount,
                         issueDate: (b.issueDate || (b as any).dueDateISO || b.dueDate || todayISO) as string,
                         dueDate: (b.dueDate || (b as any).dueDateISO || todayISO) as string,
-                        source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as any,
+                        source: (b.source === 'predicted-electricity' ? 'predicted-electricity' : b.source) as any,
                         movable: b.movable,
                       })),
                       todayISO
@@ -3406,7 +3430,7 @@ const Index = () => {
                               id: b.id || '', name: b.name, amount: b.amount,
                               issueDate: b.issueDate || (b as any).dueDateISO || b.dueDate || firstAnchor,
                               dueDate: b.dueDate || (b as any).dueDateISO || firstAnchor,
-                              source: (b.source === 'electricity' ? 'predicted-electricity' : b.source) as any,
+                              source: (b.source === 'predicted-electricity' ? 'predicted-electricity' : b.source) as any,
                               movable: b.movable
                             })), firstAnchor);
                             const startDateA = getStartDate(state.userA.paySchedule!, allBillsProvisional);
@@ -3818,11 +3842,11 @@ const Index = () => {
           suggestions={(storeResult?.billSuggestions || []).map(s => {
             // Resolve to the actual bill in state for stable id + amount
             const exactById = state.bills.find(b => b.id === s.billId);
-            const byNameAndDate = state.bills.find(b => (b.name === s.name) && ((b.dueDate || (b as any).dueDateISO) === s.currentDate));
+            const byNameAndDate = state.bills.find(b => (b.name === (s as any).name) && ((b.dueDate || (b as any).dueDateISO) === s.currentDate));
             const resolved = exactById || byNameAndDate;
             return {
               billId: resolved?.id || s.billId,
-              name: resolved?.name || s.name || s.billId,
+              name: resolved?.name || (s as any).name || s.billId,
               amount: resolved?.amount,
               currentDate: s.currentDate,
               suggestedDate: s.suggestedDate
@@ -3914,7 +3938,13 @@ const Index = () => {
                 const effA = monthlyA - allowanceMonthlyA - sumA - jointShareA;
                 const effB = monthlyB - allowanceMonthlyB - sumB - jointShareB;
                 const fairness = (effA + effB) > 0 ? effA / (effA + effB) : 0.5;
-                const { depositA, depositB } = findDepositJoint(startDate, payScheduleA, payScheduleB, previewBills, fairness, 0);
+                const previewBillsWithDefaults = previewBills.map(b => ({ 
+                  ...b, 
+                  dueDate: b.dueDate || b.issueDate, 
+                  issueDate: b.issueDate || b.dueDate,
+                  source: (b.source === "electricity" ? "predicted-electricity" : b.source) as "manual" | "predicted-electricity" | "imported"
+                }));
+                const { depositA, depositB } = findDepositJoint(startDate, payScheduleA, payScheduleB, previewBillsWithDefaults, fairness, 0);
                 return { a: depositA * cyclesPerMonth(payScheduleA.frequency), b: depositB * cyclesPerMonth(payScheduleB.frequency) } as any;
               }
             } catch {}
@@ -3923,7 +3953,7 @@ const Index = () => {
           onApply={(selected) => {
             const moves = selected.map(s => ({
               id: s.billId,
-              name: s.name || s.billId,
+              name: (s as any).name || s.billId,
               fromISO: s.currentDate,
               toISO: s.suggestedDate
             }));

@@ -263,7 +263,7 @@ export function BillsList({
                 items={g.rows}
                 itemHeight={68}
                 className="max-h-80 overflow-auto"
-                render={(row, idx) => <Row {...row} index={idx} /> as any}
+                render={(row, idx) => <Row {...row} /> as any}
               />
             )}
           </div>
