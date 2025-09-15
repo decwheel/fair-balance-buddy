@@ -41,8 +41,18 @@ serve(async (req)=>{
     error: "missing_params"
   }, 400);
   // Get authed user id
-  const { data: user } = await sb.auth.getUser();
-  const user_id = user?.user?.id;
+  // Robustly fetch the authed user (edge runtimes sometimes require explicit token)
+  let user_id: string | undefined;
+  try {
+    const u1 = await sb.auth.getUser();
+    user_id = u1?.data?.user?.id;
+  } catch {}
+  if (!user_id) {
+    try {
+      const u2 = await sb.auth.getUser(jwt as string);
+      user_id = u2?.data?.user?.id;
+    } catch {}
+  }
   if (!user_id) return json({
     error: "invalid_user"
   }, 401);

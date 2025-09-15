@@ -141,17 +141,46 @@ export function getLocalJourneyState<T = any>(): T | null {
 export function storePendingJourneyInSessionFromUrl(): { stored: boolean; removed: boolean } {
   try {
     const sp = new URLSearchParams(window.location.search);
-    const id = sp.get("journey_id");
-    const sec = sp.get("journey_secret");
+    let id = sp.get("journey_id");
+    let sec = sp.get("journey_secret");
+
+    // Fallback: also look for params inside the URL hash (e.g. http://host/#/?journey_id=...)
+    let hash = window.location.hash || "";
+    if ((!id || !sec) && hash.includes("?")) {
+      const qIndex = hash.indexOf("?");
+      const hp = new URLSearchParams(hash.slice(qIndex + 1));
+      id = id || hp.get("journey_id");
+      sec = sec || hp.get("journey_secret");
+    }
+
     if (id && sec) {
       sessionStorage.setItem(P_ID, id);
       sessionStorage.setItem(P_SECRET, sec);
-      try {
+
+      // Remove the keys from both search and hash, if present
+      let updated = false;
+      if (sp.has("journey_id") || sp.has("journey_secret")) {
         sp.delete("journey_id");
         sp.delete("journey_secret");
-        const url = `${window.location.pathname}${sp.toString() ? `?${sp.toString()}` : ''}${window.location.hash || ''}`;
-        window.history.replaceState({}, "", url);
-      } catch {}
+        updated = true;
+      }
+      if (hash.includes("?")) {
+        const qIndex = hash.indexOf("?");
+        const baseHash = hash.slice(0, qIndex);
+        const hp = new URLSearchParams(hash.slice(qIndex + 1));
+        if (hp.has("journey_id") || hp.has("journey_secret")) {
+          hp.delete("journey_id");
+          hp.delete("journey_secret");
+          hash = baseHash + (hp.toString() ? `?${hp.toString()}` : "");
+          updated = true;
+        }
+      }
+
+      if (updated) {
+        const url = `${window.location.pathname}${sp.toString() ? `?${sp.toString()}` : ''}${hash || ''}`;
+        try { window.history.replaceState({}, "", url); } catch {}
+      }
+
       return { stored: true, removed: true };
     }
   } catch {}
