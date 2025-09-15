@@ -1,1 +1,4 @@
 project_id = "dzpzwrabieadtgglrvhb"
+
+[functions.create_guest_journey]
+verify_jwt = false

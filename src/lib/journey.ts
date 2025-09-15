@@ -49,10 +49,38 @@ export async function saveJourney(patch: Record<string, any>): Promise<boolean> 
     const local = (() => { try { return JSON.parse(localStorage.getItem(J_DATA) || "{}"); } catch { return {}; } })();
     const merged = { ...local, ...patch, updated_at: new Date().toISOString() };
     try { localStorage.setItem(J_DATA, JSON.stringify(merged)); } catch {}
+    
     const keys = getJourney();
     if (!keys) return false;
-    const { error } = await supabase.functions.invoke("save_journey_state", { body: { ...keys, patch } });
-    if (error) { console.warn("[journey] save_journey_state error:", error); return false; }
+    
+    const { data, error } = await supabase.functions.invoke("save_journey_state", { 
+      body: { 
+        journey_id: keys.journey_id, 
+        journey_secret: keys.journey_secret, 
+        patch 
+      } 
+    });
+    
+    if (error) {
+      // Handle journey expiry by creating a new journey
+      if (error.message?.includes('unauthorized_or_expired') || error.message?.includes('expired')) {
+        console.warn('[journey] Journey expired, creating new journey...');
+        await ensureGuestJourney(); // This will create a new journey
+        return false; // Don't retry save, user can trigger it again
+      }
+      
+      console.warn("[journey] save_journey_state error:", error); 
+      return false; 
+    }
+    
+    // Update localStorage with expiry info if provided
+    if (data && (data as any).expires_at) {
+      const journeyData = { ...keys, expires_at: (data as any).expires_at };
+      try {
+        localStorage.setItem('journey', JSON.stringify(journeyData));
+      } catch {}
+    }
+    
     return true;
   } catch (e) {
     console.warn("[journey] saveJourney error:", e);
