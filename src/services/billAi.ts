@@ -17,9 +17,10 @@ export async function parseBillWithAI(req: AiParseRequest) {
 }
 
 export async function checkAiStatus() {
-  const { data, error } = await supabase.functions.invoke('extract-tariff', { body: { text: 'STATUS_CHECK' } });
-  if (error) {
-    throw new Error(`AI status failed: ${error.message ?? String(error)}`);
-  }
-  return data;
+  // Prefer a simple GET to avoid CORS preflight differences across environments
+  const baseUrl = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
+  const url = `${baseUrl || ''}/functions/v1/extract-tariff?status=1`;
+  const resp = await fetch(url, { method: 'GET' });
+  if (!resp.ok) throw new Error(`AI status failed: ${resp.status}`);
+  return await resp.json();
 }

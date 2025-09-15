@@ -24,10 +24,17 @@ function getCorsHeaders(req: Request) {
   const effectiveList = allowlist.length === 0 ? defaults : Array.from(new Set([...allowlist, ...defaults]));
   const originToAllow = allowAll ? (reqOrigin || "*") : (effectiveList.includes(reqOrigin) ? reqOrigin : effectiveList[0] || "*");
 
+  // Echo requested headers for preflight if present (covers library-specific headers)
+  const reqHeaders = req.headers.get("access-control-request-headers");
+  const allowHeaders = reqHeaders && reqHeaders.length > 0
+    ? reqHeaders
+    : "authorization, x-client-info, apikey, content-type";
+
   return {
     "Access-Control-Allow-Origin": originToAllow,
-    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Headers": allowHeaders,
     "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Credentials": "true",
     "Access-Control-Max-Age": "86400",
     // Help caches vary on Origin to avoid leaking CORS across sites
     "Vary": "Origin",
