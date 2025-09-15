@@ -40,7 +40,7 @@ import { persistBills } from '@/services/supabaseBills';
 import { rollForwardPastBills } from '@/utils/billUtils';
 import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
-import { ensureGuestJourney, saveJourney, getLocalJourneyState, getHouseholdId, loadNormalizedData } from '@/lib/journey.ts';
+import { ensureGuestJourney, saveJourney, getLocalJourneyState, getHouseholdId, loadNormalizedData, getJourney, getNormalizedDataFromSession } from '@/lib/journey.ts';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -72,6 +72,7 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
   const [authBusy, setAuthBusy] = useState(false);
   const [otp, setOtp] = useState('');
   const [resendIn, setResendIn] = useState(0);
+  const [householdOpen, setHouseholdOpen] = useState(false);
   const { toast } = useToast();
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
@@ -161,7 +162,7 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
                 </SheetTrigger>
                 <SheetContent side="right" className="w-64">
                   <div className="space-y-2 mt-4">
-                    <Button className="w-full justify-start" variant="ghost" onClick={() => alert('Household details coming soon')}>
+                    <Button className="w-full justify-start" variant="ghost" onClick={() => setHouseholdOpen(true)}>
                       <Home className="mr-2 h-4 w-4" /> Household
                     </Button>
                     <Button className="w-full justify-start" variant="ghost" onClick={() => alert('Invite partner coming soon')}>
@@ -191,7 +192,7 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
                   </div>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => alert('Household details coming soon')}>
+                  <DropdownMenuItem onClick={() => setHouseholdOpen(true)}>
                     <Home className="mr-2 h-4 w-4" /> <span>Household</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => alert('Invite partner coming soon')}>
@@ -241,7 +242,21 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
                     if (!emailVal) return;
                     try {
                       setAuthBusy(true);
-                      await supabase.auth.signInWithOtp({ email: emailVal });
+                      // Include journey keys in redirect so migration works across domains
+                      let redirectTo: string | undefined = undefined;
+                      try {
+                        const keys = getJourney();
+                        const base = `${window.location.origin}${window.location.pathname}`;
+                        if (keys?.journey_id && keys?.journey_secret) {
+                          const sp = new URLSearchParams(window.location.search);
+                          sp.set('journey_id', keys.journey_id);
+                          sp.set('journey_secret', keys.journey_secret);
+                          redirectTo = `${base}?${sp.toString()}`;
+                        } else {
+                          redirectTo = base;
+                        }
+                      } catch {}
+                      await supabase.auth.signInWithOtp({ email: emailVal, options: { emailRedirectTo: redirectTo } });
                       setAuthStep('sent');
                       setResendIn(30);
                       toast({ description: 'Magic link sent. Check your email.' });
@@ -266,7 +281,20 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
                   <Button size="sm" disabled={resendIn>0 || authBusy} onClick={async ()=>{
                     try {
                       setAuthBusy(true);
-                      await supabase.auth.signInWithOtp({ email: authEmail });
+                      let redirectTo: string | undefined = undefined;
+                      try {
+                        const keys = getJourney();
+                        const base = `${window.location.origin}${window.location.pathname}`;
+                        if (keys?.journey_id && keys?.journey_secret) {
+                          const sp = new URLSearchParams(window.location.search);
+                          sp.set('journey_id', keys.journey_id);
+                          sp.set('journey_secret', keys.journey_secret);
+                          redirectTo = `${base}?${sp.toString()}`;
+                        } else {
+                          redirectTo = base;
+                        }
+                      } catch {}
+                      await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: redirectTo } });
                       setResendIn(30);
                       toast({ description: 'Magic link resent.' });
                     } finally { setAuthBusy(false);} 
@@ -312,6 +340,49 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
               <p className="text-sm">You are signed in.</p>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Household dialog */}
+      <Dialog open={householdOpen} onOpenChange={setHouseholdOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Household</DialogTitle>
+          </DialogHeader>
+          {(() => {
+            const hid = getHouseholdId();
+            let migratedAt: string | null = null;
+            try { migratedAt = sessionStorage.getItem('household_migrated_at'); } catch {}
+            const data = getNormalizedDataFromSession<any>() || {};
+            const persons: any[] = Array.isArray(data.persons) ? data.persons : [];
+            const fmt = (iso?: string | null) => { try { return iso ? new Date(iso).toLocaleString() : '—'; } catch { return '—'; } };
+            return (
+              <div className="space-y-4">
+                <div className="text-sm">
+                  <div><span className="text-muted-foreground">Household ID:</span> <code>{hid || '—'}</code></div>
+                  <div><span className="text-muted-foreground">Last migration:</span> {fmt(migratedAt)}</div>
+                </div>
+                <div>
+                  <div className="text-sm font-medium mb-1">Members</div>
+                  <div className="space-y-1 text-sm">
+                    {persons.length === 0 && <div className="text-muted-foreground">No members yet.</div>}
+                    {persons.map((p, i) => (
+                      <div key={p.id || i} className="flex items-center justify-between border rounded px-2 py-1">
+                        <div className="truncate">
+                          {p.display_name || p.name || p.email || p.id || `Member ${i+1}`}
+                        </div>
+                        <div className="text-xs text-muted-foreground">{p.email || ''}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 justify-end">
+                  <Button variant="outline" onClick={() => alert('Invite partner coming soon')}>Invite partner</Button>
+                  <Button onClick={() => { setHouseholdOpen(false); try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}; setState(prev => ({ ...prev, step: 'bank' })); }}>Manage bank connections</Button>
+                </div>
+              </div>
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </div>

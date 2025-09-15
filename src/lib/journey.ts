@@ -10,6 +10,9 @@ const J_SECRET = "journey_secret";
 const J_DATA = "journey_state"; // local shadow for quick resume
 const H_ID = "household_id";
 const H_DATA = "household_data";
+const H_MIGRATED_AT = "household_migrated_at";
+const P_ID = "pending_journey_id";
+const P_SECRET = "pending_journey_secret";
 
 export function getJourney(): JourneyKeys | null {
   try {
@@ -59,7 +62,14 @@ export async function saveJourney(patch: Record<string, any>): Promise<boolean> 
 
 export async function migrateJourneyToHousehold(): Promise<string | null> {
   try {
-    const keys = getJourney();
+    let keys = getJourney();
+    if (!keys) {
+      try {
+        const journey_id = sessionStorage.getItem(P_ID) || "";
+        const journey_secret = sessionStorage.getItem(P_SECRET) || "";
+        if (journey_id && journey_secret) keys = { journey_id, journey_secret };
+      } catch {}
+    }
     if (!keys) return null;
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData.session?.access_token;
@@ -69,9 +79,12 @@ export async function migrateJourneyToHousehold(): Promise<string | null> {
     const household_id: string | undefined = (data as any)?.household_id || (data as any)?.id;
     if (household_id) {
       try { sessionStorage.setItem(H_ID, household_id); } catch {}
+      try { sessionStorage.setItem(H_MIGRATED_AT, new Date().toISOString()); } catch {}
       try { localStorage.removeItem(J_ID); } catch {}
       try { localStorage.removeItem(J_SECRET); } catch {}
       try { localStorage.removeItem(J_DATA); } catch {}
+      try { sessionStorage.removeItem(P_ID); } catch {}
+      try { sessionStorage.removeItem(P_SECRET); } catch {}
       return household_id;
     }
   } catch (e) {
@@ -120,3 +133,26 @@ export function getLocalJourneyState<T = any>(): T | null {
   try { const s = localStorage.getItem(J_DATA); return s ? JSON.parse(s) as T : null; } catch { return null; }
 }
 
+export function storePendingJourneyInSessionFromUrl(): { stored: boolean; removed: boolean } {
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const id = sp.get("journey_id");
+    const sec = sp.get("journey_secret");
+    if (id && sec) {
+      sessionStorage.setItem(P_ID, id);
+      sessionStorage.setItem(P_SECRET, sec);
+      try {
+        sp.delete("journey_id");
+        sp.delete("journey_secret");
+        const url = `${window.location.pathname}${sp.toString() ? `?${sp.toString()}` : ''}${window.location.hash || ''}`;
+        window.history.replaceState({}, "", url);
+      } catch {}
+      return { stored: true, removed: true };
+    }
+  } catch {}
+  return { stored: false, removed: false };
+}
+
+export function getNormalizedDataFromSession<T = any>(): T | null {
+  try { const s = sessionStorage.getItem(H_DATA); return s ? JSON.parse(s) as T : null; } catch { return null; }
+}

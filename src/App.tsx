@@ -22,7 +22,7 @@ import { expandRecurring } from "./lib/expandRecurring";
 import { ThemeProvider } from "next-themes";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { ScrollToTop } from "./components/ScrollToTop";
-import { ensureGuestJourney, migrateJourneyToHousehold, loadNormalizedData, saveJourney } from "@/lib/journey.ts";
+import { ensureGuestJourney, migrateJourneyToHousehold, loadNormalizedData, saveJourney, storePendingJourneyInSessionFromUrl } from "@/lib/journey.ts";
 import { supabase } from "./integrations/supabase/client";
 
 const queryClient = new QueryClient();
@@ -77,6 +77,9 @@ function App() {
   useEffect(() => {
     // Ensure a guest journey exists for unauthenticated visitors
     ensureGuestJourney().catch(() => {});
+
+    // Capture journey keys passed via magic link and clean URL
+    try { storePendingJourneyInSessionFromUrl(); } catch {}
 
     // If user signs in and a guest journey exists → migrate it
     const sub = supabase.auth.onAuthStateChange(async (evt) => {
