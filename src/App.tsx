@@ -94,6 +94,22 @@ function App() {
     return () => { try { sub.data.subscription.unsubscribe(); } catch {} };
   }, []);
 
+  // On initial load, if a Supabase session already exists (magic-link redirect), migrate any guest journey.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (data?.session) {
+          const migrated = await migrateJourneyToHousehold();
+          if (migrated) {
+            await loadNormalizedData();
+            try { window.dispatchEvent(new CustomEvent('journey:migrated', { detail: { household_id: migrated } } as any)); } catch {}
+          }
+        }
+      } catch {}
+    })();
+  }, []);
+
   useEffect(() => {
     // Spawn the web worker once (Vite's ?worker)
     const w = new SimWorker();
