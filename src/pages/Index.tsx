@@ -1031,9 +1031,11 @@ const Index = () => {
   };
 
   useEffect(() => {
-    console.log('[VITE_SUPABASE_URL]', import.meta.env.VITE_SUPABASE_URL);
-    console.log('[VITE_SUPABASE_ANON_KEY]', (import.meta.env.VITE_SUPABASE_ANON_KEY || '').slice(0, 10) + '...');
-    console.log('[VITE_USE_MOCK_GC]', import.meta.env.VITE_USE_MOCK_GC);
+    if (import.meta.env.DEV) {
+      console.log('[VITE_SUPABASE_URL]', import.meta.env.VITE_SUPABASE_URL);
+      console.log('[VITE_SUPABASE_ANON_KEY]', (import.meta.env.VITE_SUPABASE_ANON_KEY || '').slice(0, 10) + '...');
+      console.log('[VITE_USE_MOCK_GC]', import.meta.env.VITE_USE_MOCK_GC);
+    }
   }, []);
 
   // 🔁 NEW: whenever worker/store detections change, hydrate the page state from them
