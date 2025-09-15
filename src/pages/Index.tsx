@@ -73,6 +73,62 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
   const [otp, setOtp] = useState('');
   const [resendIn, setResendIn] = useState(0);
   const [householdOpen, setHouseholdOpen] = useState(false);
+
+  // Expose a snapshot saver so header buttons can persist a complete migration state
+  useEffect(() => {
+    (window as any).__saveJourneySnapshot = async () => {
+      try {
+        const persons = (() => {
+          const arr: any[] = [];
+          arr.push({ label: 'A', display_name: 'A' });
+          if (state.mode === 'joint' && state.userB?.paySchedule) arr.push({ label: 'B', display_name: 'B' });
+          return arr;
+        })();
+        const wages = (() => {
+          const mapFq = (f?: string) => {
+            if (!f) return 'MONTHLY';
+            const u = f.toUpperCase();
+            return ['WEEKLY','FORTNIGHTLY','BIWEEKLY','FOUR_WEEKLY','MONTHLY'].includes(u) ? u : 'MONTHLY';
+          };
+          const items: any[] = [];
+          if (state.userA?.paySchedule) {
+            items.push({ label: 'A', frequency: mapFq(state.userA.paySchedule.frequency), amount_per_month: state.userA.paySchedule.averageAmount ?? 0, last_seen_date: null, next_date: state.userA.paySchedule.anchorDate, confirmed: true });
+          }
+          if (state.mode === 'joint' && state.userB?.paySchedule) {
+            items.push({ label: 'B', frequency: mapFq(state.userB.paySchedule.frequency), amount_per_month: state.userB.paySchedule.averageAmount ?? 0, last_seen_date: null, next_date: state.userB.paySchedule.anchorDate, confirmed: true });
+          }
+          return items;
+        })();
+        const lowerOwner = (o?: any) => {
+          if (!o) return 'joint';
+          const u = String(o).toUpperCase();
+          return u === 'A' ? 'A' : u === 'B' ? 'B' : 'joint';
+        };
+        const bills = (state.bills || [])
+          .filter(b => state.includedBillIds.includes(b.id!))
+          .map(b => ({
+            name: b.name,
+            owner: lowerOwner((b as any).owner),
+            frequency: 'monthly',
+            day_rule: (b as any).dueDay ? `day ${(b as any).dueDay}` : undefined,
+            category: undefined,
+            amount: b.amount,
+            confidence: 1
+          }));
+        const electricity_readings = (state.electricityReadings || []).map(r => ({ start_at: (r as any).startISO || (r as any).start_at || null, end_at: (r as any).endISO || (r as any).end_at || null, kwh: (r as any).kwh }));
+        const electricity_bills: any[] = [];
+        // Forecast snapshot from worker/store if available
+        const entries = (usePlanStore.getState().result as any)?.entries as Array<{ dateISO?: string; date?: string; label: string; delta: number }> | undefined;
+        const forecast_items = Array.isArray(entries)
+          ? entries.map(e => ({ dt: (e.dateISO || e.date || '').slice(0,10), kind: undefined, person: undefined, name: e.label, amount: e.delta }))
+          : [];
+        const forecast_starts_on = (usePlanStore.getState().result as any)?.startISO || state.userA?.paySchedule?.anchorDate || null;
+        const forecast_months = 12;
+        await saveJourney({ persons, wages, bills, electricity_readings, electricity_bills, forecast_items, forecast_starts_on, forecast_months });
+      } catch (e) { console.warn('save snapshot failed', e); }
+    };
+    return () => { try { delete (window as any).__saveJourneySnapshot; } catch {} };
+  }, [state]);
   const { toast } = useToast();
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
@@ -143,7 +199,10 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
             </SheetTrigger>
             <SheetContent side="right" className="w-64">
               <div className="space-y-2 mt-4">
-                <Button className="w-full justify-start" onClick={() => setAuthOpen(true)}>
+                <Button className="w-full justify-start" onClick={() => {
+                  try { (window as any).__saveJourneySnapshot?.(); } catch {}
+                  setAuthOpen(true);
+                }}>
                   <Save className="mr-2 h-4 w-4" /> Save progress (Sign up)
                 </Button>
               </div>
@@ -1880,7 +1939,11 @@ const Index = () => {
           isLoading: false,
           step: 'results'
         }));
-        try { saveJourney({ step: 'forecast', weeklyAllowanceA: currentState.weeklyAllowanceA ?? 0, weeklyAllowanceB: currentState.weeklyAllowanceB ?? 0, pots: currentState.pots ?? [] }).catch(()=>{}); } catch {}
+        try {
+          const snapshot = (window as any).__saveJourneySnapshot;
+          if (typeof snapshot === 'function') await snapshot();
+          else await saveJourney({ step: 'forecast', weeklyAllowanceA: currentState.weeklyAllowanceA ?? 0, weeklyAllowanceB: currentState.weeklyAllowanceB ?? 0, pots: currentState.pots ?? [] });
+        } catch {}
         try { track('forecast_run'); announce('Forecast calculated'); } catch {}
       }
     } catch (error) {

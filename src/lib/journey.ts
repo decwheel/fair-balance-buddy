@@ -76,7 +76,12 @@ export async function migrateJourneyToHousehold(): Promise<string | null> {
     if (!token) return null;
     const { data, error } = await supabase.functions.invoke("migrate_journey_to_household", { body: { ...keys }, headers: { Authorization: `Bearer ${token}` } });
     if (error) { console.error("[journey] migrate error:", error); return null; }
+    const maybeErr = (data as any)?.error as string | undefined;
     const household_id: string | undefined = (data as any)?.household_id || (data as any)?.id;
+    if (maybeErr && /already/i.test(maybeErr) && household_id) {
+      try { sessionStorage.setItem(H_ID, household_id); } catch {}
+      return household_id;
+    }
     if (household_id) {
       try { sessionStorage.setItem(H_ID, household_id); } catch {}
       try { sessionStorage.setItem(H_MIGRATED_AT, new Date().toISOString()); } catch {}
