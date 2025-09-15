@@ -10,9 +10,9 @@ import type { EsbReading } from '@/services/esbCsv';
 import type { TariffRates } from '@/services/billPdf';
 import { toast } from 'sonner';
 
-export function ElectricityUpload({ onDone, onBusyChange }: { onDone: (data: { readings: EsbReading[]; tariff?: TariffRates }) => void; onBusyChange?: (busy: boolean) => void }) {
-  const [readings, setReadings] = React.useState<EsbReading[]>([]);
-  const [tariff, setTariff] = React.useState<TariffRates | undefined>(undefined);
+export function ElectricityUpload({ onDone, onBusyChange, initialReadings, initialTariff }: { onDone: (data: { readings: EsbReading[]; tariff?: TariffRates }) => void; onBusyChange?: (busy: boolean) => void; initialReadings?: EsbReading[]; initialTariff?: TariffRates }) {
+  const [readings, setReadings] = React.useState<EsbReading[]>(initialReadings ?? []);
+  const [tariff, setTariff] = React.useState<TariffRates | undefined>(initialTariff);
   const [csvBusy, setCsvBusy] = React.useState(false);
   const [billBusy, setBillBusy] = React.useState(false);
   const { announce } = useAnnounce();
@@ -21,6 +21,18 @@ export function ElectricityUpload({ onDone, onBusyChange }: { onDone: (data: { r
   React.useEffect(() => {
     onDone({ readings, tariff });
   }, [readings, tariff]);
+
+  // If parent passes initial values later (e.g., after rehydrate), adopt them if we don't already have state
+  React.useEffect(() => {
+    if ((initialReadings?.length || 0) > 0 && readings.length === 0) {
+      setReadings(initialReadings!);
+    }
+  }, [initialReadings]);
+  React.useEffect(() => {
+    if (initialTariff && !tariff) {
+      setTariff(initialTariff);
+    }
+  }, [initialTariff]);
 
   // Bubble up busy state
   React.useEffect(() => {

@@ -27,7 +27,10 @@ export function getJourney(): JourneyKeys | null {
 export async function ensureGuestJourney(): Promise<JourneyKeys | null> {
   try {
     const have = getJourney();
-    if (have) return have;
+    if (have) {
+      try { window.dispatchEvent(new CustomEvent('journey:ready')); } catch {}
+      return have;
+    }
     // Treat as already authenticated only if a real user is present
     const { data: userData } = await supabase.auth.getUser();
     if (userData?.user) return null;
@@ -38,6 +41,7 @@ export async function ensureGuestJourney(): Promise<JourneyKeys | null> {
     if (journey_id && journey_secret) {
       localStorage.setItem(J_ID, journey_id);
       localStorage.setItem(J_SECRET, journey_secret);
+      try { window.dispatchEvent(new CustomEvent('journey:ready')); } catch {}
       return { journey_id, journey_secret };
     }
   } catch (e) {
