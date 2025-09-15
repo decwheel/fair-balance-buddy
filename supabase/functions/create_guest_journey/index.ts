@@ -2,18 +2,38 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const ALLOWED_ORIGIN = Deno.env.get("ALLOWED_ORIGIN") || "*";
-const cors = {
-  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS"
-};
+function getCorsHeaders(req: Request) {
+  const envList = Deno.env.get("ALLOWED_ORIGINS") || Deno.env.get("ALLOWED_ORIGIN") || "*";
+  const allowlist = envList.split(",").map((s) => s.trim()).filter(Boolean);
+  const reqOrigin = req.headers.get("origin") || "";
+  const allowAll = allowlist.includes("*");
+  const defaults = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+  ];
+  const effectiveList = allowlist.length === 0 ? defaults : Array.from(new Set([...allowlist, ...defaults]));
+  const originToAllow = allowAll ? (reqOrigin || "*") : (effectiveList.includes(reqOrigin) ? reqOrigin : effectiveList[0] || "*");
+  const reqHeaders = req.headers.get("access-control-request-headers");
+  const allowHeaders = reqHeaders && reqHeaders.length > 0
+    ? reqHeaders
+    : "authorization, x-client-info, apikey, content-type";
+  return {
+    "Access-Control-Allow-Origin": originToAllow,
+    "Access-Control-Allow-Headers": allowHeaders,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Credentials": "true",
+    "Access-Control-Max-Age": "86400",
+    "Vary": "Origin",
+  } as Record<string, string>;
+}
 
-function json(body, status = 200) {
+function jsonReq(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: {
-      ...cors,
+      ...getCorsHeaders(req),
       "Content-Type": "application/json"
     }
   });
@@ -67,23 +87,16 @@ function getClientIP(req: Request): string {
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", {
-    headers: cors
-  });
+  if (req.method === "OPTIONS") return new Response("ok", { headers: getCorsHeaders(req) });
   
-  if (req.method !== "POST") return json({
-    error: "Method not allowed"
-  }, 405);
+  if (req.method !== "POST") return jsonReq(req, { error: "Method not allowed" }, 405);
 
   const clientIP = getClientIP(req);
   
   // Rate limiting check
   if (!checkRateLimit(clientIP)) {
     console.log(`Rate limit exceeded for IP: ${clientIP}`);
-    return json({
-      error: "rate_limit_exceeded",
-      message: "Too many journey creation requests. Please try again later."
-    }, 429);
+    return jsonReq(req, { error: "rate_limit_exceeded", message: "Too many journey creation requests. Please try again later." }, 429);
   }
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
@@ -109,23 +122,14 @@ serve(async (req) => {
 
     if (error) {
       console.error('Database insert error:', error);
-      return json({
-        error: "db_insert_failed",
-        detail: error.message
-      }, 500);
+      return jsonReq(req, { error: "db_insert_failed", detail: error.message }, 500);
     }
 
     console.log(`Created journey ${data.id} for IP: ${clientIP}`);
 
-    return json({
-      journey_id: data.id,
-      journey_secret: secret
-    });
+    return jsonReq(req, { journey_id: data.id, journey_secret: secret });
   } catch (error) {
     console.error('Unexpected error in create_guest_journey:', error);
-    return json({
-      error: "internal_error",
-      detail: error.message
-    }, 500);
+    return jsonReq(req, { error: "internal_error", detail: (error as any)?.message || String(error) }, 500);
   }
 });

@@ -22,7 +22,7 @@ import { expandRecurring } from "./lib/expandRecurring";
 import { ThemeProvider } from "next-themes";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { ScrollToTop } from "./components/ScrollToTop";
-import { ensureGuestJourney, migrateJourneyToHousehold, loadNormalizedData, saveJourney, storePendingJourneyInSessionFromUrl } from "@/lib/journey.ts";
+import { ensureGuestJourney, migrateJourneyToHousehold, loadNormalizedData, saveJourney, storePendingJourneyInSessionFromUrl, ensureHouseholdInSession } from "@/lib/journey.ts";
 import { supabase } from "./integrations/supabase/client";
 import { setupInactivityTimeout, startSessionValidation, logSecurityEvent } from "./lib/security";
 
@@ -76,9 +76,11 @@ function App() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    // Handle Supabase magic-link/code callback: exchange code for a session
+    // Handle Supabase magic-link/code callback: capture journey keys first, then exchange tokens for a session
     (async () => {
       try {
+        // Persist any journey keys embedded in the redirect URL before modifying it
+        try { storePendingJourneyInSessionFromUrl(); } catch {}
         const url = new URL(window.location.href);
         const hasCodeParam = !!url.searchParams.get('code');
         const hash = url.hash || '';
@@ -86,9 +88,27 @@ function App() {
 
         if (hasCodeParam) {
           console.log('[auth] Exchanging code for session...');
-          await supabase.auth.exchangeCodeForSession({ currentUrl: window.location.href });
-          console.log('[auth] Exchange complete.');
-          try { await logSecurityEvent('session_exchanged'); } catch {}
+          try {
+            await supabase.auth.exchangeCodeForSession({ currentUrl: window.location.href });
+            console.log('[auth] Exchange complete.');
+            try { await logSecurityEvent('session_exchanged'); } catch {}
+          } catch (e) {
+            console.error('[auth] exchangeCodeForSession failed:', e);
+          }
+          try {
+            const { data } = await supabase.auth.getSession();
+            console.log('[auth] Session after exchange?', !!data?.session);
+            if (data?.session) {
+              await ensureHouseholdInSession();
+              const migrated = await migrateJourneyToHousehold();
+              if (migrated) {
+                await loadNormalizedData();
+                try { window.dispatchEvent(new CustomEvent('journey:migrated', { detail: { household_id: migrated } } as any)); } catch {}
+              } else {
+                await loadNormalizedData();
+              }
+            }
+          } catch {}
         } else if (hasHashTokens) {
           // Handle hash-based magic link (?type=magiclink#access_token=...&refresh_token=...)
           console.log('[auth] Setting session from hash tokens...');
@@ -99,6 +119,16 @@ function App() {
             await supabase.auth.setSession({ access_token, refresh_token });
             console.log('[auth] Session set from hash tokens.');
             try { await logSecurityEvent('session_exchanged_hash'); } catch {}
+            try {
+              await ensureHouseholdInSession();
+              const migrated = await migrateJourneyToHousehold();
+              if (migrated) {
+                await loadNormalizedData();
+                try { window.dispatchEvent(new CustomEvent('journey:migrated', { detail: { household_id: migrated } } as any)); } catch {}
+              } else {
+                await loadNormalizedData();
+              }
+            } catch {}
           }
         }
 
@@ -125,19 +155,19 @@ function App() {
           }
         } catch {}
       } catch (e) {
-        console.error('[auth] exchangeCodeForSession failed:', e);
+        console.error('[auth] magic-link handling failed:', e);
       }
     })();
 
     // Ensure a guest journey exists for unauthenticated visitors
     ensureGuestJourney().catch(() => {});
 
-    // Capture journey keys passed via magic link and clean URL
-    try { storePendingJourneyInSessionFromUrl(); } catch {}
+    // Journey keys already captured above
 
     // If user signs in and a guest journey exists → migrate it
     const sub = supabase.auth.onAuthStateChange(async (evt, session) => {
       if (evt === 'SIGNED_IN' || evt === 'INITIAL_SESSION') {
+        await ensureHouseholdInSession();
         const migrated = await migrateJourneyToHousehold();
         if (migrated) {
           await loadNormalizedData();
@@ -163,6 +193,7 @@ function App() {
       try {
         const { data } = await supabase.auth.getSession();
         if (data?.session) {
+          await ensureHouseholdInSession();
           const migrated = await migrateJourneyToHousehold();
           if (migrated) {
             await loadNormalizedData();

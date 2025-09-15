@@ -40,12 +40,12 @@ import { persistBills } from '@/services/supabaseBills';
 import { rollForwardPastBills } from '@/utils/billUtils';
 import type { RecurringItem, SalaryCandidate, SavingsPot, SimResult, PlanInputs } from '@/types';
 import { useToast } from '@/components/ui/use-toast';
-import { ensureGuestJourney, saveJourney, getLocalJourneyState, getHouseholdId, loadNormalizedData, getJourney, getNormalizedDataFromSession } from '@/lib/journey.ts';
+import { ensureGuestJourney, saveJourney, getLocalJourneyState, getHouseholdId, loadNormalizedData, getJourney, getNormalizedDataFromSession, ensureHouseholdInSession } from '@/lib/journey.ts';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { InputOTP, InputOTPGroup, InputOTPSlot } from '@/components/ui/input-otp';
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetTrigger, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { expandRecurring } from '../lib/expandRecurring';
 import { Stepper } from '@/components/Stepper';
 import { BillsList } from '@/components/BillsList';
@@ -104,7 +104,30 @@ function HeaderActions({
   // (removed mistakenly inserted normalized-data effect; handled in Index component)
 
 
-  const hasJourney = (() => { try { return !!localStorage.getItem('journey_id'); } catch { return false; } })();
+  const [hasJourney, setHasJourney] = useState<boolean>(() => {
+    try { return !!localStorage.getItem('journey_id'); } catch { return false; }
+  });
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'journey_id') {
+        try { setHasJourney(!!(e.newValue || localStorage.getItem('journey_id'))); } catch {}
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    // Also poll once after mount in case ensureGuestJourney ran earlier in another component
+    try { setHasJourney(!!localStorage.getItem('journey_id')); } catch {}
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // When opening the Household dialog, ensure local session has household info even if migration ran in another tab
+  useEffect(() => {
+    (async () => {
+      if (householdOpen) {
+        try { await ensureHouseholdInSession(); } catch {}
+        try { await loadNormalizedData(); } catch {}
+      }
+    })();
+  }, [householdOpen]);
 
   return (
     <div className="relative mb-8">
@@ -122,7 +145,21 @@ function HeaderActions({
           <>
             {/* Inline buttons only on ≥sm screens */}
             <div className="hidden sm:flex items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={onTryGuest}>
+              <Button size="sm" variant="secondary" onClick={async () => { 
+                try { 
+                  await onTryGuest();
+                  const ok = (()=>{ try { return !!localStorage.getItem('journey_id'); } catch { return false; }})();
+                  setHasJourney(ok);
+                  if (ok) {
+                    try { toast({ description: 'Guest mode enabled. You can now Save progress.' }); } catch {}
+                  } else {
+                    try { toast({ description: 'Could not start guest mode (you may already be signed in).', variant: 'destructive' }); } catch {}
+                  }
+                } catch (e) {
+                  try { toast({ description: 'Guest mode failed. See console.', variant: 'destructive' }); } catch {}
+                  console.warn('[guest] failed', e);
+                }
+              }}>
                 <PlayCircle className="mr-2 h-4 w-4" /> Try it
               </Button>
               <Button size="sm" onClick={() => setAuthOpen(true)}>
@@ -137,8 +174,26 @@ function HeaderActions({
                 </Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-64">
+                <SheetHeader>
+                  <SheetTitle>Menu</SheetTitle>
+                  <SheetDescription className="sr-only">Quick actions</SheetDescription>
+                </SheetHeader>
                 <div className="space-y-2 mt-4">
-                  <Button className="w-full justify-start" variant="secondary" onClick={onTryGuest}>
+                  <Button className="w-full justify-start" variant="secondary" onClick={async () => { 
+                    try { 
+                      await onTryGuest();
+                      const ok = (()=>{ try { return !!localStorage.getItem('journey_id'); } catch { return false; }})();
+                      setHasJourney(ok);
+                      if (ok) {
+                        try { toast({ description: 'Guest mode enabled. You can now Save progress.' }); } catch {}
+                      } else {
+                        try { toast({ description: 'Could not start guest mode (you may already be signed in).', variant: 'destructive' }); } catch {}
+                      }
+                    } catch (e) {
+                      try { toast({ description: 'Guest mode failed. See console.', variant: 'destructive' }); } catch {}
+                      console.warn('[guest] failed', e);
+                    }
+                  }}>
                     <PlayCircle className="mr-2 h-4 w-4" /> Try it without an account
                   </Button>
                   <Button className="w-full justify-start" onClick={() => setAuthOpen(true)}>
@@ -157,6 +212,10 @@ function HeaderActions({
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-64">
+              <SheetHeader>
+                <SheetTitle>Menu</SheetTitle>
+                <SheetDescription className="sr-only">Quick actions</SheetDescription>
+              </SheetHeader>
               <div className="space-y-2 mt-4">
                 <Button className="w-full justify-start" onClick={() => {
                   try { (window as any).__saveJourneySnapshot?.(); } catch {}
@@ -167,6 +226,14 @@ function HeaderActions({
               </div>
             </SheetContent>
           </Sheet>
+        )}
+        {/* Inline Save Progress button for ≥sm screens when guest journey exists */}
+        {!email && hasJourney && (
+          <div className="hidden sm:flex items-center gap-2">
+            <Button size="sm" onClick={() => { try { (window as any).__saveJourneySnapshot?.(); } catch {}; setAuthOpen(true); }}>
+              <Save className="mr-2 h-4 w-4" /> Save progress
+            </Button>
+          </div>
         )}
         {!!email && (
           <>
@@ -179,6 +246,10 @@ function HeaderActions({
                   </Button>
                 </SheetTrigger>
                 <SheetContent side="right" className="w-64">
+                  <SheetHeader>
+                    <SheetTitle>Menu</SheetTitle>
+                    <SheetDescription className="sr-only">Quick actions</SheetDescription>
+                  </SheetHeader>
                   <div className="space-y-2 mt-4">
                     <Button className="w-full justify-start" variant="ghost" onClick={() => setHouseholdOpen(true)}>
                       <Home className="mr-2 h-4 w-4" /> Household
@@ -241,6 +312,9 @@ function HeaderActions({
               {authStep === 'code' && 'Enter verification code'}
               {authStep === 'done' && 'Signed in'}
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Enter your email to receive a magic link or a one-time code.
+            </DialogDescription>
           </DialogHeader>
           {authStep === 'form' && (
             <div className="space-y-3">
@@ -275,7 +349,7 @@ function HeaderActions({
                         }
                       } catch {}
                       console.log('[auth] signInWithOtp redirectTo =', redirectTo);
-                      await supabase.auth.signInWithOtp({ email: emailVal, options: { emailRedirectTo: redirectTo } });
+                      await supabase.auth.signInWithOtp({ email: emailVal, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });
                       setAuthStep('sent');
                       setResendIn(30);
                       toast({ description: 'Magic link sent. Check your email.' });
@@ -296,7 +370,29 @@ function HeaderActions({
               <div className="flex flex-wrap gap-2 justify-between">
                 <Button size="sm" variant="secondary" onClick={()=> setAuthStep('form')}>Change email</Button>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={()=> setAuthStep('code')}>Use code instead</Button>
+                  {import.meta.env.VITE_ALLOW_OTP_CODE === '1' && (
+                    <Button size="sm" variant="outline" onClick={async ()=>{
+                      try {
+                        setAuthBusy(true);
+                        // Re-send an email that includes a 6-digit code; user can paste it here
+                        let redirectTo: string | undefined = undefined;
+                        try {
+                          const keys = getJourney();
+                          const base = `${window.location.origin}${window.location.pathname}`;
+                          if (keys?.journey_id && keys?.journey_secret) {
+                            const sp = new URLSearchParams(window.location.search);
+                            sp.set('journey_id', keys.journey_id);
+                            sp.set('journey_secret', keys.journey_secret);
+                            redirectTo = `${base}?${sp.toString()}`;
+                          } else {
+                            redirectTo = base;
+                          }
+                        } catch {}
+                        await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });
+                      } catch (e) { console.warn(e); } finally { setAuthBusy(false); }
+                      setAuthStep('code');
+                    }}>Use code instead</Button>
+                  )}
                   <Button size="sm" disabled={resendIn>0 || authBusy} onClick={async ()=>{
                     try {
                       setAuthBusy(true);
@@ -314,7 +410,7 @@ function HeaderActions({
                         }
                       } catch {}
                       console.log('[auth] resend signInWithOtp redirectTo =', redirectTo);
-                      await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: redirectTo } });
+                      await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });
                       setResendIn(30);
                       toast({ description: 'Magic link resent.' });
                     } finally { setAuthBusy(false);} 
@@ -368,6 +464,7 @@ function HeaderActions({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Household</DialogTitle>
+            <DialogDescription className="sr-only">Details for your migrated data</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="text-sm">

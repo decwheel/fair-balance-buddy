@@ -28,8 +28,9 @@ export async function ensureGuestJourney(): Promise<JourneyKeys | null> {
   try {
     const have = getJourney();
     if (have) return have;
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (sessionData.session) return null;
+    // Treat as already authenticated only if a real user is present
+    const { data: userData } = await supabase.auth.getUser();
+    if (userData?.user) return null;
     const { data, error } = await supabase.functions.invoke("create_guest_journey", { body: {} });
     if (error) { console.warn("[journey] create_guest_journey failed:", error); return null; }
     const journey_id: string = (data as any)?.journey_id || (data as any)?.id;
@@ -180,6 +181,21 @@ export async function loadNormalizedData(): Promise<Record<string, any> | null> 
     if (!f.error) out.forecasts = f.data;
     if (!fi.error) out.forecast_items = fi.data;
     try { sessionStorage.setItem(H_DATA, JSON.stringify(out)); } catch {}
+
+    // Ensure household_id is cached locally for UI, even if migration happened in another tab
+    try {
+      let hid = sessionStorage.getItem(H_ID) || '';
+      if (!hid) {
+        const hm = await sb.from('household_members').select('household_id').limit(1).maybeSingle();
+        hid = hm?.data?.household_id || '';
+        if (hid) {
+          sessionStorage.setItem(H_ID, hid);
+          if (!sessionStorage.getItem(H_MIGRATED_AT)) {
+            sessionStorage.setItem(H_MIGRATED_AT, new Date().toISOString());
+          }
+        }
+      }
+    } catch {}
     return out;
   } catch (e) {
     console.warn("[journey] loadNormalizedData error:", e);
@@ -246,4 +262,23 @@ export function storePendingJourneyInSessionFromUrl(): { stored: boolean; remove
 
 export function getNormalizedDataFromSession<T = any>(): T | null {
   try { const s = sessionStorage.getItem(H_DATA); return s ? JSON.parse(s) as T : null; } catch { return null; }
+}
+
+// Ensure household_id present by querying membership if needed (e.g., after opening magic link in a new tab)
+export async function ensureHouseholdInSession(): Promise<string | null> {
+  try {
+    const hid = sessionStorage.getItem(H_ID);
+    if (hid) return hid;
+    const { data: sess } = await supabase.auth.getSession();
+    if (!sess.session) return null;
+    const { data } = await supabase.from('household_members').select('household_id').limit(1).maybeSingle();
+    const household_id = data?.household_id || null;
+    if (household_id) {
+      try { sessionStorage.setItem(H_ID, household_id); } catch {}
+      try { if (!sessionStorage.getItem(H_MIGRATED_AT)) sessionStorage.setItem(H_MIGRATED_AT, new Date().toISOString()); } catch {}
+    }
+    return household_id;
+  } catch {
+    return null;
+  }
 }
