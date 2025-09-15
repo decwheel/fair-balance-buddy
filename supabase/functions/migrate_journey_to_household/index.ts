@@ -29,13 +29,9 @@ serve(async (req)=>{
   }, 401);
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
   const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${jwt}`
-      }
-    }
-  });
+  // Use service role privileges for DB writes (RLS policies permit service_role).
+  // Do NOT set Authorization header globally; instead fetch user from JWT explicitly.
+  const sb = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
   const { journey_id, journey_secret } = await req.json().catch(()=>({}));
   if (!journey_id || !journey_secret) return json({
     error: "missing_params"
@@ -44,15 +40,9 @@ serve(async (req)=>{
   // Robustly fetch the authed user (edge runtimes sometimes require explicit token)
   let user_id: string | undefined;
   try {
-    const u1 = await sb.auth.getUser();
-    user_id = u1?.data?.user?.id;
+    const u = await sb.auth.getUser(jwt as string);
+    user_id = u?.data?.user?.id;
   } catch {}
-  if (!user_id) {
-    try {
-      const u2 = await sb.auth.getUser(jwt as string);
-      user_id = u2?.data?.user?.id;
-    } catch {}
-  }
   if (!user_id) return json({
     error: "invalid_user"
   }, 401);

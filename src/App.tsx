@@ -80,24 +80,50 @@ function App() {
     (async () => {
       try {
         const url = new URL(window.location.href);
-        const hasCode = url.searchParams.get('code') || url.hash.includes('access_token') || url.hash.includes('type=magiclink');
-        if (hasCode) {
+        const hasCodeParam = !!url.searchParams.get('code');
+        const hash = url.hash || '';
+        const hasHashTokens = hash.includes('access_token') && hash.includes('refresh_token');
+
+        if (hasCodeParam) {
           console.log('[auth] Exchanging code for session...');
           await supabase.auth.exchangeCodeForSession({ currentUrl: window.location.href });
           console.log('[auth] Exchange complete.');
           try { await logSecurityEvent('session_exchanged'); } catch {}
-          // Clean OAuth params from URL but keep our own (e.g., journey_id)
-          try {
-            const u = new URL(window.location.href);
-            const drop = ['code','type','access_token','refresh_token','expires_in','provider_token','token_type'];
-            let changed = false;
-            drop.forEach((k) => { if (u.searchParams.has(k)) { u.searchParams.delete(k); changed = true; } });
-            if (changed) {
-              const clean = `${u.pathname}${u.search}${u.hash}`;
-              window.history.replaceState({}, '', clean);
-            }
-          } catch {}
+        } else if (hasHashTokens) {
+          // Handle hash-based magic link (?type=magiclink#access_token=...&refresh_token=...)
+          console.log('[auth] Setting session from hash tokens...');
+          const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
+          const access_token = params.get('access_token') || '';
+          const refresh_token = params.get('refresh_token') || '';
+          if (access_token && refresh_token) {
+            await supabase.auth.setSession({ access_token, refresh_token });
+            console.log('[auth] Session set from hash tokens.');
+            try { await logSecurityEvent('session_exchanged_hash'); } catch {}
+          }
         }
+
+        // Clean OAuth params from URL but keep our own (e.g., journey_id)
+        try {
+          const u = new URL(window.location.href);
+          const drop = ['code','type','access_token','refresh_token','expires_in','provider_token','token_type'];
+          let changed = false;
+          drop.forEach((k) => { if (u.searchParams.has(k)) { u.searchParams.delete(k); changed = true; } });
+          if (u.hash) {
+            const hp = new URLSearchParams(u.hash.startsWith('#') ? u.hash.slice(1) : u.hash);
+            let hashChanged = false;
+            ['access_token','refresh_token','expires_in','provider_token','token_type','type'].forEach((k)=>{
+              if (hp.has(k)) { hp.delete(k); hashChanged = true; }
+            });
+            if (hashChanged) {
+              u.hash = hp.toString() ? '#' + hp.toString() : '';
+              changed = true;
+            }
+          }
+          if (changed) {
+            const clean = `${u.pathname}${u.search}${u.hash}`;
+            window.history.replaceState({}, '', clean);
+          }
+        } catch {}
       } catch (e) {
         console.error('[auth] exchangeCodeForSession failed:', e);
       }
