@@ -354,40 +354,43 @@ function HeaderActions({ onTryGuest, onSignIn, onSignUp }: { onTryGuest: () => v
           <DialogHeader>
             <DialogTitle>Household</DialogTitle>
           </DialogHeader>
-          {(() => {
-            const hid = getHouseholdId();
-            let migratedAt: string | null = null;
-            try { migratedAt = sessionStorage.getItem('household_migrated_at'); } catch {}
-            const data = getNormalizedDataFromSession<any>() || {};
-            const persons: any[] = Array.isArray(data.persons) ? data.persons : [];
-            const fmt = (iso?: string | null) => { try { return iso ? new Date(iso).toLocaleString() : '—'; } catch { return '—'; } };
-            return (
-              <div className="space-y-4">
-                <div className="text-sm">
-                  <div><span className="text-muted-foreground">Household ID:</span> <code>{hid || '—'}</code></div>
-                  <div><span className="text-muted-foreground">Last migration:</span> {fmt(migratedAt)}</div>
-                </div>
-                <div>
-                  <div className="text-sm font-medium mb-1">Members</div>
-                  <div className="space-y-1 text-sm">
-                    {persons.length === 0 && <div className="text-muted-foreground">No members yet.</div>}
-                    {persons.map((p, i) => (
-                      <div key={p.id || i} className="flex items-center justify-between border rounded px-2 py-1">
-                        <div className="truncate">
-                          {p.display_name || p.name || p.email || p.id || `Member ${i+1}`}
-                        </div>
-                        <div className="text-xs text-muted-foreground">{p.email || ''}</div>
+          <div className="space-y-4">
+            <div className="text-sm">
+              <div><span className="text-muted-foreground">Household ID:</span> <code>{getHouseholdId() || '—'}</code></div>
+              <div><span className="text-muted-foreground">Last migration:</span> {(() => {
+                try { 
+                  const migratedAt = sessionStorage.getItem('household_migrated_at');
+                  return migratedAt ? new Date(migratedAt).toLocaleString() : '—';
+                } catch { 
+                  return '—';
+                }
+              })()}</div>
+            </div>
+            <div>
+              <div className="text-sm font-medium mb-1">Members</div>
+              <div className="space-y-1 text-sm">
+                {(() => {
+                  const data = getNormalizedDataFromSession<any>() || {};
+                  const persons: any[] = Array.isArray(data.persons) ? data.persons : [];
+                  if (persons.length === 0) return <div className="text-muted-foreground">No members yet.</div>;
+                  return persons.map((p, i) => (
+                    <div key={p.id || i} className="flex items-center justify-between border rounded px-2 py-1">
+                      <div className="truncate">
+                        {p.display_name || p.name || p.email || p.id || `Member ${i+1}`}
                       </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-2 justify-end">
-                  <Button variant="outline" onClick={() => alert('Invite partner coming soon')}>Invite partner</Button>
-                  <Button onClick={() => { setHouseholdOpen(false); try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}; setState(prev => ({ ...prev, step: 'bank' })); }}>Manage bank connections</Button>
-                </div>
+                      <div className="text-xs text-muted-foreground">{p.email || ''}</div>
+                    </div>
+                  ));
+                })()}
               </div>
-            );
-          })()}
+            </div>
+            <div className="flex flex-wrap gap-2 justify-end">
+              <Button variant="outline" onClick={() => alert('Invite partner coming soon')}>Invite partner</Button>
+              <Button onClick={handleManageBankConnections}>
+                Manage bank connections
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -490,13 +493,20 @@ const Index = () => {
   const [newPotAmount, setNewPotAmount] = useState<number>(0);
   const [newPotTarget, setNewPotTarget] = useState<number | ''>('');
   const [newPotOwner, setNewPotOwner] = useState<'A' | 'B' | 'JOINT'>('A');
-  // New inputs for split pot creation (joint mode)
+
+  // New inputs for split pot creation (joint mode)  
   const [newPotNameA, setNewPotNameA] = useState('');
   const [newPotAmountA, setNewPotAmountA] = useState<number>(0);
   const [newPotTargetA, setNewPotTargetA] = useState<number | ''>('');
   const [newPotNameB, setNewPotNameB] = useState('');
   const [newPotAmountB, setNewPotAmountB] = useState<number>(0);
   const [newPotTargetB, setNewPotTargetB] = useState<number | ''>('');
+
+  const handleManageBankConnections = () => {
+    setHouseholdOpen(false);
+    try { window.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
+    setState(prev => ({ ...prev, step: 'bank' }));
+  };
   const [showBillWizard, setShowBillWizard] = useState(false);
   const [dateMoves, setDateMoves] = useState<Array<{ name: string; fromISO: string; toISO: string }>>([]);
   // Live budget preview + binding mode for two-way coupling between allowances and pots
