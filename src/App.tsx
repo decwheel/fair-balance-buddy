@@ -394,6 +394,13 @@ function App() {
   
   useEffect(() => {
     if (!ready || hasManualSelection) return;
+    // Skip auto-detect when we explicitly start at setup from Landing
+    try {
+      if (sessionStorage.getItem('start_at_setup') === '1') {
+        sessionStorage.removeItem('start_at_setup');
+        return;
+      }
+    } catch {}
     // Make sure a valid guest journey exists before first persistence
     ensureGuestJourney().then(() => {
       const txA = mapBoiToTransactions(mockA as any);

@@ -20,7 +20,10 @@ export default function Landing() {
 
   const startGuest = async () => {
     await ensureGuestJourney();
-    try { sessionStorage.setItem('show_guest_hint', '1'); } catch {}
+    try {
+      sessionStorage.setItem('show_guest_hint', '1');
+      sessionStorage.setItem('start_at_setup', '1');
+    } catch {}
     navigate('/app');
   };
 
