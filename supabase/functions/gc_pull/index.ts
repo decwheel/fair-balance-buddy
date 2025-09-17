@@ -1,10 +1,11 @@
 // supabase/functions/gc_pull/index.ts
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Content-Type': 'application/json'
+'Access-Control-Allow-Origin': '*',
+'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+'Content-Type': 'application/json'
 };
 let cachedToken = null;
 let tokenExpiry = 0;
@@ -69,7 +70,11 @@ serve(async (req)=>{
     });
   }
   try {
-    const { requisitionId, partner = 'A' } = await req.json();
+    const body = await req.json();
+    const requisitionId = body?.requisitionId;
+    const partner = (body?.partner || 'A').toUpperCase();
+    const journey_id = body?.journey_id || null;
+    const journey_secret = body?.journey_secret || null;
     if (!requisitionId) {
       return new Response(JSON.stringify({
         error: 'missing_requisitionId'
@@ -85,6 +90,79 @@ serve(async (req)=>{
         transactions
       }), {
         status: 200,
+        headers: corsHeaders
+      });
+    }
+    // Authorize by mapping in gc_links
+    const SUPABASE_URL = Deno.env.get('SUPABASE_URL');
+    const ANON = Deno.env.get('SUPABASE_ANON_KEY');
+    const SERVICE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const admin = createClient(SUPABASE_URL, SERVICE, {
+      auth: {
+        persistSession: false
+      }
+    });
+    const authHeader = req.headers.get('Authorization') || '';
+    const authed = !!authHeader;
+    const userClient = authed ? createClient(SUPABASE_URL, ANON, {
+      global: {
+        headers: {
+          Authorization: authHeader
+        }
+      }
+    }) : null;
+    // Lookup the stored mapping for this requisition
+    const { data: link, error: linkErr } = await admin.from('gc_links').select('household_id, journey_id, partner').eq('requisition_id', requisitionId).maybeSingle();
+    if (linkErr || !link) {
+      return new Response(JSON.stringify({
+        error: 'unknown_requisition'
+      }), {
+        status: 404,
+        headers: corsHeaders
+      });
+    }
+    if (link.household_id) {
+      if (!authed) return new Response(JSON.stringify({
+        error: 'unauthorized'
+      }), {
+        status: 401,
+        headers: corsHeaders
+      });
+      const { data: hm } = await userClient.from('household_members').select('household_id').limit(1).maybeSingle();
+      if (!hm?.household_id || hm.household_id !== link.household_id) {
+        return new Response(JSON.stringify({
+          error: 'forbidden'
+        }), {
+          status: 403,
+          headers: corsHeaders
+        });
+      }
+    } else if (link.journey_id) {
+      // Guest path: require valid secret matching stored journey_id
+      if (!journey_id || !journey_secret || journey_id !== link.journey_id) {
+        return new Response(JSON.stringify({
+          error: 'journey_credentials_required'
+        }), {
+          status: 401,
+          headers: corsHeaders
+        });
+      }
+      const { data: ok } = await admin.rpc('is_journey_secret_valid', {
+        journey_id,
+        secret: journey_secret
+      });
+      if (!ok) return new Response(JSON.stringify({
+        error: 'unauthorized_or_expired'
+      }), {
+        status: 401,
+        headers: corsHeaders
+      });
+    } else {
+      // No ownership info stored — reject
+      return new Response(JSON.stringify({
+        error: 'ownership_missing'
+      }), {
+        status: 403,
         headers: corsHeaders
       });
     }

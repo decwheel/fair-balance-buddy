@@ -28,8 +28,17 @@ export async function ensureGuestJourney(): Promise<JourneyKeys | null> {
   try {
     const have = getJourney();
     if (have) {
-      try { window.dispatchEvent(new CustomEvent('journey:ready')); } catch {}
-      return have;
+      // Validate existing keys in case they expired while stored locally
+      try {
+        const { error } = await (supabase as any).functions.invoke('save_journey_state', {
+          body: { journey_id: have.journey_id, journey_secret: have.journey_secret, patch: {} },
+        });
+        if (!error) {
+          try { window.dispatchEvent(new CustomEvent('journey:ready')); } catch {}
+          return have;
+        }
+        // If unauthorized/expired → fall through to create a new journey
+      } catch {}
     }
     // Treat as already authenticated only if a real user is present
     const { data: userData } = await supabase.auth.getUser();

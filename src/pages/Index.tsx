@@ -56,6 +56,7 @@ import { WagesBottomSheet } from '@/components/WagesBottomSheet';
 import { ElectricityUpload } from '@/components/ElectricityUpload';
 import { ForecastForm } from '@/components/ForecastForm';
 import { ResultsHero } from '@/components/ResultsHero';
+import { TrialBanner } from '@/components/billing/TrialBanner';
 import { useInView } from '@/hooks/useInView';
 import { ForecastCalendar } from '@/components/ForecastCalendar';
 import { SavingsPanel } from '@/components/SavingsPanel';
@@ -250,7 +251,10 @@ function HeaderActions({
                     <SheetTitle>Menu</SheetTitle>
                     <SheetDescription className="sr-only">Quick actions</SheetDescription>
                   </SheetHeader>
-                  <div className="space-y-2 mt-4">
+                <div className="space-y-2 mt-4">
+                    <Button className="w-full justify-start" variant="ghost" onClick={() => { try { window.location.href = '/account'; } catch {} }}>
+                      <SettingsIcon className="mr-2 h-4 w-4" /> Account
+                    </Button>
                     <Button className="w-full justify-start" variant="ghost" onClick={() => setHouseholdOpen(true)}>
                       <Home className="mr-2 h-4 w-4" /> Household
                     </Button>
@@ -281,6 +285,9 @@ function HeaderActions({
                   </div>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => { try { window.location.href = '/account'; } catch {} }}>
+                    <SettingsIcon className="mr-2 h-4 w-4" /> <span>Account</span>
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setHouseholdOpen(true)}>
                     <Home className="mr-2 h-4 w-4" /> <span>Household</span>
                   </DropdownMenuItem>
@@ -2244,6 +2251,11 @@ const Index = () => {
           setHouseholdOpen={setHouseholdOpen}
           onManageBankConnections={handleManageBankConnections}
         />
+
+        {/* Trial banner for signed-in users */}
+        <div className="my-3">
+          <TrialBanner />
+        </div>
 
         <Stepper current={state.step} onNavigate={(k)=> setState(prev => ({ ...prev, step: k }))} />
 

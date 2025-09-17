@@ -2,9 +2,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS"
+"Access-Control-Allow-Origin": "*",
+"Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+"Access-Control-Allow-Methods": "POST, OPTIONS"
 };
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -38,20 +38,16 @@ serve(async (req)=>{
   }, 400);
   // Get authed user id
   // Robustly fetch the authed user (edge runtimes sometimes require explicit token)
-  let user_id: string | undefined;
+  let user_id;
   try {
-    const u = await sb.auth.getUser(jwt as string);
+    const u = await sb.auth.getUser(jwt);
     user_id = u?.data?.user?.id;
-  } catch {}
+  } catch  {}
   if (!user_id) return json({
     error: "invalid_user"
   }, 401);
   // Fetch journey
-  const { data: j, error: jErr } = await sb
-    .from("journeys")
-    .select("id, secret, state, upgraded, upgraded_household")
-    .eq("id", journey_id)
-    .single();
+  const { data: j, error: jErr } = await sb.from("journeys").select("id, secret, state, upgraded, upgraded_household").eq("id", journey_id).single();
   if (jErr || !j) return json({
     error: "journey_not_found"
   }, 404);
@@ -70,11 +66,9 @@ serve(async (req)=>{
     }, 200);
   }
   // Create household + membership
-  const { data: hh, error: hhErr } = await sb
-    .from("households")
-    .insert({ name: "Household" })
-    .select("id")
-    .single();
+  const { data: hh, error: hhErr } = await sb.from("households").insert({
+    name: "Household"
+  }).select("id").single();
   if (hhErr) return json({
     error: "household_create_failed",
     detail: hhErr.message
@@ -85,7 +79,10 @@ serve(async (req)=>{
     user_id,
     role: "owner"
   });
-  if (hmErr) return json({ error: "household_members_insert_failed", detail: hmErr.message }, 500);
+  if (hmErr) return json({
+    error: "household_members_insert_failed",
+    detail: hmErr.message
+  }, 500);
   // Create persons A/B
   const persons = j.state?.persons ?? [
     {
@@ -101,7 +98,10 @@ serve(async (req)=>{
       display_name: p.display_name || p.label
     }));
   const { data: pRows, error: pErr } = await sb.from("persons").insert(personsRows).select("id,label");
-  if (pErr) return json({ error: "persons_insert_failed", detail: pErr.message }, 500);
+  if (pErr) return json({
+    error: "persons_insert_failed",
+    detail: pErr.message
+  }, 500);
   // Insert wages
   const wages = j.state?.wages ?? []; // [{label:'A', frequency:'MONTHLY', amount_per_month:4500, last_seen_date:'2025-03-28', next_date:'2025-10-01', confirmed:true}]
   if (wages.length && pRows?.length) {
@@ -117,7 +117,10 @@ serve(async (req)=>{
         next_date: w.next_date,
         confirmed: !!w.confirmed
       })));
-    if (wErr) return json({ error: "wages_insert_failed", detail: wErr.message }, 500);
+    if (wErr) return json({
+      error: "wages_insert_failed",
+      detail: wErr.message
+    }, 500);
   }
   // Insert recurring bills
   const bills = j.state?.bills ?? []; // [{name, owner:'A'|'B'|'joint', frequency, day_rule, category, amount, confidence}]
@@ -126,7 +129,10 @@ serve(async (req)=>{
         household_id,
         ...b
       })));
-    if (rbErr) return json({ error: "recurring_bills_insert_failed", detail: rbErr.message }, 500);
+    if (rbErr) return json({
+      error: "recurring_bills_insert_failed",
+      detail: rbErr.message
+    }, 500);
   }
   // Electricity readings + bills (optional)
   const readings = j.state?.electricity_readings ?? []; // [{start_at, end_at, kwh}]
@@ -135,7 +141,10 @@ serve(async (req)=>{
         household_id,
         ...r
       })));
-    if (erErr) return json({ error: "electricity_readings_insert_failed", detail: erErr.message }, 500);
+    if (erErr) return json({
+      error: "electricity_readings_insert_failed",
+      detail: erErr.message
+    }, 500);
   }
   const ebills = j.state?.electricity_bills ?? []; // [{bill_date, amount, tariff:{...}}]
   if (ebills.length) {
@@ -145,7 +154,10 @@ serve(async (req)=>{
         amount: b.amount,
         tariff: b.tariff || null
       })));
-    if (ebErr) return json({ error: "electricity_bills_insert_failed", detail: ebErr.message }, 500);
+    if (ebErr) return json({
+      error: "electricity_bills_insert_failed",
+      detail: ebErr.message
+    }, 500);
   }
   // Optional: snapshot last forecast (if you computed one client-side)
   if (j.state?.forecast_items?.length) {
@@ -154,13 +166,19 @@ serve(async (req)=>{
       starts_on: j.state?.forecast_starts_on || null,
       months: j.state?.forecast_months || 12
     }).select("id").single();
-    if (fErr) return json({ error: "forecasts_insert_failed", detail: fErr.message }, 500);
+    if (fErr) return json({
+      error: "forecasts_insert_failed",
+      detail: fErr.message
+    }, 500);
     if (f?.id) {
       const { error: fiErr } = await sb.from("forecast_items").insert(j.state.forecast_items.map((it)=>({
           forecast_id: f.id,
           ...it
         })));
-      if (fiErr) return json({ error: "forecast_items_insert_failed", detail: fiErr.message }, 500);
+      if (fiErr) return json({
+        error: "forecast_items_insert_failed",
+        detail: fiErr.message
+      }, 500);
     }
   }
   // Mark journey upgraded
@@ -169,7 +187,10 @@ serve(async (req)=>{
     upgraded_user: user_id,
     upgraded_household: household_id
   }).eq("id", journey_id);
-  if (upErr) return json({ error: "journey_update_failed", detail: upErr.message }, 500);
+  if (upErr) return json({
+    error: "journey_update_failed",
+    detail: upErr.message
+  }, 500);
   return json({
     ok: true,
     household_id

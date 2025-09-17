@@ -1,10 +1,10 @@
 // supabase/functions/get_institutions/index.ts
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Content-Type': 'application/json'
+'Access-Control-Allow-Origin': '*',
+'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+'Content-Type': 'application/json'
 };
 let cachedToken = null;
 let tokenExpiry = 0;

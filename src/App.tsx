@@ -3,9 +3,13 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { LiveAnnouncer } from "@/components/accessibility/LiveAnnouncer";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { createBrowserRouter, RouterProvider, Outlet } from "react-router-dom";
 import BankCallback from './pages/BankCallback';
+import UpgradeSuccess from './pages/UpgradeSuccess';
+import Account from './pages/Account';
+import { PaywallModal } from '@/components/billing/PaywallModal';
 import Index from "./pages/Index";
+import Landing from "./pages/Landing";
 import NotFound from "./pages/NotFound";
 import React, { useEffect, useRef, useState } from "react";
 import * as Comlink from "comlink";
@@ -159,7 +163,7 @@ function App() {
       }
     })();
 
-    // Ensure a guest journey exists for unauthenticated visitors
+    // Ensure a guest journey exists for unauthenticated visitors (validate or create)
     ensureGuestJourney().catch(() => {});
 
     // Journey keys already captured above
@@ -371,11 +375,21 @@ function App() {
   
   useEffect(() => {
     if (!ready || hasManualSelection) return;
-    const txA = mapBoiToTransactions(mockA as any);
-    setTransactions(txA);
-    runDetection(txA).catch(err => {
-      console.error("[auto detect] failed:", err);
-      toast.error("Auto-detect failed (see console)");
+    // Make sure a valid guest journey exists before first persistence
+    ensureGuestJourney().then(() => {
+      const txA = mapBoiToTransactions(mockA as any);
+      setTransactions(txA);
+      runDetection(txA).catch(err => {
+        console.error("[auto detect] failed:", err);
+        toast.error("Auto-detect failed (see console)");
+      });
+    }).catch(() => {
+      const txA = mapBoiToTransactions(mockA as any);
+      setTransactions(txA);
+      runDetection(txA).catch(err => {
+        console.error("[auto detect] failed:", err);
+        toast.error("Auto-detect failed (see console)");
+      });
     });
   }, [ready, hasManualSelection]);
 
@@ -475,15 +489,29 @@ function App() {
           <LiveAnnouncer>
             {/* Tiny theme toggle chip in top-left */}
             <ThemeToggle />
-            <BrowserRouter>
-              <ScrollToTop behavior="auto" />
-              <Routes>
-                <Route path="/" element={<Index />} />
-                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-                <Route path="*" element={<NotFound />} />
-                <Route path="/bank-callback" element={<BankCallback />} />
-              </Routes>
-            </BrowserRouter>
+            <RouterProvider
+              router={createBrowserRouter([
+                {
+                  path: '/',
+                  element: (
+                    <>
+                      <ScrollToTop behavior="auto" />
+                      <Outlet />
+                      <PaywallModal />
+                    </>
+                  ),
+                  children: [
+                    { index: true, element: <Landing /> },
+                    { path: 'app', element: <Index /> },
+                    { path: 'upgrade-success', element: <UpgradeSuccess /> },
+                    { path: 'account', element: <Account /> },
+                    { path: 'bank-callback', element: <BankCallback /> },
+                    { path: '*', element: <NotFound /> },
+                  ],
+                },
+              ])}
+              future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+            />
           </LiveAnnouncer>
         </TooltipProvider>
       </ThemeProvider>
