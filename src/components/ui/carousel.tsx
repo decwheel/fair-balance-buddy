@@ -258,3 +258,45 @@ export {
   CarouselPrevious,
   CarouselNext,
 }
+
+// Dots indicator for Embla carousel; uses context API
+export function CarouselDots({ className }: { className?: string }) {
+  const { api } = useCarousel()
+  const [count, setCount] = React.useState(0)
+  const [selected, setSelected] = React.useState(0)
+
+  React.useEffect(() => {
+    if (!api) return
+    const onSelect = () => setSelected(api.selectedScrollSnap())
+    setCount(api.scrollSnapList().length)
+    setSelected(api.selectedScrollSnap())
+    api.on("select", onSelect)
+    api.on("reInit", () => {
+      setCount(api.scrollSnapList().length)
+      setSelected(api.selectedScrollSnap())
+    })
+    return () => {
+      try { api.off("select", onSelect) } catch {}
+    }
+  }, [api])
+
+  if (!api || count <= 1) return null
+
+  return (
+    <div className={cn("flex items-center gap-2", className)} aria-label="Slides">
+      {Array.from({ length: count }).map((_, i) => (
+        <button
+          key={i}
+          type="button"
+          aria-label={`Go to slide ${i + 1}`}
+          aria-current={selected === i ? "true" : "false"}
+          onClick={() => api.scrollTo(i)}
+          className={cn(
+            "h-2 w-2 rounded-full transition-colors",
+            selected === i ? "bg-foreground" : "bg-muted hover:bg-muted-foreground/40"
+          )}
+        />
+      ))}
+    </div>
+  )
+}

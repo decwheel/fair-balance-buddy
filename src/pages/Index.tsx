@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useLinkAccount } from '@/hooks/useLinkAccount';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -62,8 +62,9 @@ import { ForecastCalendar } from '@/components/ForecastCalendar';
 import { SavingsPanel } from '@/components/SavingsPanel';
 import { CashflowSummary } from '@/components/CashflowSummary';
 import { useAnnounce } from '@/components/accessibility/LiveAnnouncer';
+import { toast as sonnerToast } from 'sonner';
 import { track } from '@/lib/analytics';
-import { Menu, Home, UserPlus, Link2, Settings as SettingsIcon, LogOut, Save, PlayCircle, LogIn } from 'lucide-react';
+import { Menu, Home, UserPlus, Link2, Settings as SettingsIcon, LogOut, Save, PlayCircle } from 'lucide-react';
 
 function HeaderActions({ 
   onTryGuest, 
@@ -71,7 +72,11 @@ function HeaderActions({
   onSignUp, 
   householdOpen, 
   setHouseholdOpen,
-  onManageBankConnections
+  onManageBankConnections,
+  showGuestHint,
+  setShowGuestHint,
+  menuRef,
+  hintCenter,
 }: { 
   onTryGuest: () => void; 
   onSignIn: () => void; 
@@ -79,6 +84,10 @@ function HeaderActions({
   householdOpen: boolean;
   setHouseholdOpen: (open: boolean) => void;
   onManageBankConnections: () => void;
+  showGuestHint: boolean;
+  setShowGuestHint: (open: boolean) => void;
+  menuRef?: React.RefObject<HTMLButtonElement>;
+  hintCenter?: { x: number; y: number } | null;
 }) {
   const [email, setEmail] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -89,7 +98,7 @@ function HeaderActions({
   const [resendIn, setResendIn] = useState(0);
 
   // (snapshot saver is attached by Index component)
-  const { toast } = useToast();
+  const { toast: uiToast } = useToast();
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail(data.user?.email ?? null));
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (evt, session) => {
@@ -142,37 +151,22 @@ function HeaderActions({
 
       {/* Right-side controls */}
       <div className="absolute right-0 top-0 h-10 flex items-center gap-2">
-        {!email && !hasJourney && (
+        {/* No controls shown here for non-signed users without a journey; guest mode is initiated from Landing */}
+        {!email && hasJourney && (
           <>
-            {/* Inline buttons only on ≥sm screens */}
-            <div className="hidden sm:flex items-center gap-2">
-              <Button size="sm" variant="secondary" onClick={async () => { 
-                try { 
-                  await onTryGuest();
-                  const ok = (()=>{ try { return !!localStorage.getItem('journey_id'); } catch { return false; }})();
-                  setHasJourney(ok);
-                  if (ok) {
-                    try { toast({ description: 'Guest mode enabled. You can now Save progress.' }); } catch {}
-                  } else {
-                    try { toast({ description: 'Could not start guest mode (you may already be signed in).', variant: 'destructive' }); } catch {}
-                  }
-                } catch (e) {
-                  try { toast({ description: 'Guest mode failed. See console.', variant: 'destructive' }); } catch {}
-                  console.warn('[guest] failed', e);
-                }
-              }}>
-                <PlayCircle className="mr-2 h-4 w-4" /> Try it
-              </Button>
-              <Button size="sm" onClick={() => setAuthOpen(true)}>
-                <LogIn className="mr-2 h-4 w-4" /> Sign in
-              </Button>
-            </div>
-            {/* Hamburger menu for small screens */}
             <Sheet>
               <SheetTrigger asChild>
-                <Button size="icon" variant="ghost" aria-label="Menu">
-                  <Menu className="h-5 w-5" />
-                </Button>
+                <div className="relative">
+                  <Button ref={menuRef} size="icon" variant="ghost" aria-label="Menu" onClick={() => setShowGuestHint(false)}>
+                    <Menu className="h-5 w-5" />
+                  </Button>
+                  {showGuestHint && (
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-yellow-400/90 animate-pulse"
+                    />
+                  )}
+                </div>
               </SheetTrigger>
               <SheetContent side="right" className="w-64">
                 <SheetHeader>
@@ -180,62 +174,34 @@ function HeaderActions({
                   <SheetDescription className="sr-only">Quick actions</SheetDescription>
                 </SheetHeader>
                 <div className="space-y-2 mt-4">
-                  <Button className="w-full justify-start" variant="secondary" onClick={async () => { 
-                    try { 
-                      await onTryGuest();
-                      const ok = (()=>{ try { return !!localStorage.getItem('journey_id'); } catch { return false; }})();
-                      setHasJourney(ok);
-                      if (ok) {
-                        try { toast({ description: 'Guest mode enabled. You can now Save progress.' }); } catch {}
-                      } else {
-                        try { toast({ description: 'Could not start guest mode (you may already be signed in).', variant: 'destructive' }); } catch {}
-                      }
-                    } catch (e) {
-                      try { toast({ description: 'Guest mode failed. See console.', variant: 'destructive' }); } catch {}
-                      console.warn('[guest] failed', e);
-                    }
-                  }}>
-                    <PlayCircle className="mr-2 h-4 w-4" /> Try it without an account
-                  </Button>
-                  <Button className="w-full justify-start" onClick={() => setAuthOpen(true)}>
-                    <LogIn className="mr-2 h-4 w-4" /> Sign in
-                  </Button>
-                </div>
-              </SheetContent>
-            </Sheet>
-          </>
-        )}
-        {!email && hasJourney && (
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label="Menu">
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="right" className="w-64">
-              <SheetHeader>
-                <SheetTitle>Menu</SheetTitle>
-                <SheetDescription className="sr-only">Quick actions</SheetDescription>
-              </SheetHeader>
-              <div className="space-y-2 mt-4">
                 <Button className="w-full justify-start" onClick={() => {
                   try { (window as any).__saveJourneySnapshot?.(); } catch {}
-                  setAuthOpen(true);
+                  try { setShowGuestHint(false); } catch {}
+                  try { window.location.href = '/'; } catch {}
                 }}>
                   <Save className="mr-2 h-4 w-4" /> Save progress (Sign up)
                 </Button>
-              </div>
-            </SheetContent>
-          </Sheet>
+                </div>
+              </SheetContent>
+            </Sheet>
+            {showGuestHint && (
+              <div
+                className="fixed inset-0 z-40 pointer-events-none bg-background/30"
+                style={{
+                  backdropFilter: 'blur(6px)',
+                  WebkitBackdropFilter: 'blur(6px)',
+                  maskImage: hintCenter
+                    ? `radial-gradient(110px 110px at ${hintCenter.x}px ${hintCenter.y}px, transparent 0, transparent 62%, black 63%)`
+                    : 'radial-gradient(110px 110px at calc(100% - 40px) 32px, transparent 0, transparent 62%, black 63%)',
+                  WebkitMaskImage: hintCenter
+                    ? `radial-gradient(110px 110px at ${hintCenter.x}px ${hintCenter.y}px, transparent 0, transparent 62%, black 63%)`
+                    : 'radial-gradient(110px 110px at calc(100% - 40px) 32px, transparent 0, transparent 62%, black 63%)',
+                }}
+              />
+            )}
+          </>
         )}
-        {/* Inline Save Progress button for ≥sm screens when guest journey exists */}
-        {!email && hasJourney && (
-          <div className="hidden sm:flex items-center gap-2">
-            <Button size="sm" onClick={() => { try { (window as any).__saveJourneySnapshot?.(); } catch {}; setAuthOpen(true); }}>
-              <Save className="mr-2 h-4 w-4" /> Save progress
-            </Button>
-          </div>
-        )}
+        {/* Removed inline Save button on desktop to keep highlight visible */}
         {!!email && (
           <>
             {/* Mobile: hamburger sheet */}
@@ -273,6 +239,7 @@ function HeaderActions({
                   </div>
                 </SheetContent>
               </Sheet>
+              {/* No guest hint overlay when signed in */}
             </div>
 
             {/* Desktop/tablet: avatar dropdown */}
@@ -309,162 +276,7 @@ function HeaderActions({
           </>
         )}
       </div>
-      {/* Auth dialog for email-based OTP sign-in/sign-up */}
-      <Dialog open={authOpen} onOpenChange={(v)=>{ setAuthOpen(v); if (!v){ setAuthStep('form'); setAuthEmail(''); setOtp(''); setResendIn(0);} }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {authStep === 'form' && 'Enter your email'}
-              {authStep === 'sent' && 'Magic link sent'}
-              {authStep === 'code' && 'Enter verification code'}
-              {authStep === 'done' && 'Signed in'}
-            </DialogTitle>
-            <DialogDescription className="sr-only">
-              Enter your email to receive a magic link or a one-time code.
-            </DialogDescription>
-          </DialogHeader>
-          {authStep === 'form' && (
-            <div className="space-y-3">
-              <Input
-                type="email"
-                placeholder="you@example.com"
-                value={authEmail}
-                onChange={(e)=> setAuthEmail(e.target.value)}
-                autoFocus
-              />
-              <div className="flex justify-between items-center">
-                <div className="text-xs text-muted-foreground">We’ll send you a magic link.</div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={()=> setAuthOpen(false)}>Cancel</Button>
-                  <Button size="sm" disabled={authBusy || !authEmail} onClick={async ()=>{
-                    const emailVal = (authEmail || '').trim();
-                    if (!emailVal) return;
-                    try {
-                      setAuthBusy(true);
-                      // Include journey keys in redirect so migration works across domains
-                      let redirectTo: string | undefined = undefined;
-                      try {
-                        const keys = getJourney();
-                        const base = `${window.location.origin}${window.location.pathname}`;
-                        if (keys?.journey_id && keys?.journey_secret) {
-                          const sp = new URLSearchParams(window.location.search);
-                          sp.set('journey_id', keys.journey_id);
-                          sp.set('journey_secret', keys.journey_secret);
-                          redirectTo = `${base}?${sp.toString()}`;
-                        } else {
-                          redirectTo = base;
-                        }
-                      } catch {}
-                      console.log('[auth] signInWithOtp redirectTo =', redirectTo);
-                      await supabase.auth.signInWithOtp({ email: emailVal, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });
-                      setAuthStep('sent');
-                      setResendIn(30);
-                      toast({ description: 'Magic link sent. Check your email.' });
-                      // start resend cooldown
-                      const timer = setInterval(()=> setResendIn((s)=>{ if (s<=1){ clearInterval(timer); return 0;} return s-1; }), 1000);
-                    } catch (e) {
-                      console.warn(e);
-                      toast({ description: 'Failed to send email. Try again.', variant: 'destructive' });
-                    } finally { setAuthBusy(false); }
-                  }}>Continue</Button>
-                </div>
-              </div>
-            </div>
-          )}
-          {authStep === 'sent' && (
-            <div className="space-y-3">
-              <p className="text-sm">We sent a magic link to <span className="font-medium">{authEmail}</span>. Open it on this device to finish signing in.</p>
-              <div className="flex flex-wrap gap-2 justify-between">
-                <Button size="sm" variant="secondary" onClick={()=> setAuthStep('form')}>Change email</Button>
-                <div className="flex gap-2">
-                  {import.meta.env.VITE_ALLOW_OTP_CODE === '1' && (
-                    <Button size="sm" variant="outline" onClick={async ()=>{
-                      try {
-                        setAuthBusy(true);
-                        // Re-send an email that includes a 6-digit code; user can paste it here
-                        let redirectTo: string | undefined = undefined;
-                        try {
-                          const keys = getJourney();
-                          const base = `${window.location.origin}${window.location.pathname}`;
-                          if (keys?.journey_id && keys?.journey_secret) {
-                            const sp = new URLSearchParams(window.location.search);
-                            sp.set('journey_id', keys.journey_id);
-                            sp.set('journey_secret', keys.journey_secret);
-                            redirectTo = `${base}?${sp.toString()}`;
-                          } else {
-                            redirectTo = base;
-                          }
-                        } catch {}
-                        await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });
-                      } catch (e) { console.warn(e); } finally { setAuthBusy(false); }
-                      setAuthStep('code');
-                    }}>Use code instead</Button>
-                  )}
-                  <Button size="sm" disabled={resendIn>0 || authBusy} onClick={async ()=>{
-                    try {
-                      setAuthBusy(true);
-                      let redirectTo: string | undefined = undefined;
-                      try {
-                        const keys = getJourney();
-                        const base = `${window.location.origin}${window.location.pathname}`;
-                        if (keys?.journey_id && keys?.journey_secret) {
-                          const sp = new URLSearchParams(window.location.search);
-                          sp.set('journey_id', keys.journey_id);
-                          sp.set('journey_secret', keys.journey_secret);
-                          redirectTo = `${base}?${sp.toString()}`;
-                        } else {
-                          redirectTo = base;
-                        }
-                      } catch {}
-                      console.log('[auth] resend signInWithOtp redirectTo =', redirectTo);
-                      await supabase.auth.signInWithOtp({ email: authEmail, options: { emailRedirectTo: redirectTo, shouldCreateUser: true } });
-                      setResendIn(30);
-                      toast({ description: 'Magic link resent.' });
-                    } finally { setAuthBusy(false);} 
-                  }}>{resendIn>0? `Resend (${resendIn})` : 'Resend'}</Button>
-                </div>
-              </div>
-            </div>
-          )}
-          {authStep === 'code' && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">Enter the 6‑digit code from your email for {authEmail}.</p>
-              <div className="flex justify-center">
-                <InputOTP maxLength={6} value={otp} onChange={setOtp}>
-                  <InputOTPGroup>
-                    <InputOTPSlot index={0} />
-                    <InputOTPSlot index={1} />
-                    <InputOTPSlot index={2} />
-                    <InputOTPSlot index={3} />
-                    <InputOTPSlot index={4} />
-                    <InputOTPSlot index={5} />
-                  </InputOTPGroup>
-                </InputOTP>
-              </div>
-              <div className="flex justify-between">
-                <Button size="sm" variant="secondary" onClick={()=> setAuthStep('sent')}>Back</Button>
-                <Button size="sm" disabled={otp.length!==6 || authBusy} onClick={async ()=>{
-                  try {
-                    setAuthBusy(true);
-                    await supabase.auth.verifyOtp({ email: authEmail, token: otp, type: 'email' });
-                    toast({ description: 'Signed in.' });
-                    setAuthStep('done');
-                    setTimeout(()=> setAuthOpen(false), 600);
-                  } catch (e) {
-                    console.warn(e);
-                    toast({ description: 'Invalid code. Try again.', variant: 'destructive' });
-                  } finally { setAuthBusy(false); }
-                }}>Verify</Button>
-              </div>
-            </div>
-          )}
-          {authStep === 'done' && (
-            <div className="space-y-2">
-              <p className="text-sm">You are signed in.</p>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Removed in-app sign-in dialog: sign-in is handled on the Landing page */}
 
       {/* Household dialog */}
       <Dialog open={householdOpen} onOpenChange={setHouseholdOpen}>
@@ -606,7 +418,7 @@ const Index = () => {
 
   const [billDialogOpen, setBillDialogOpen] = useState(false);
   const [billEditing, setBillEditing] = useState<Bill | null>(null);
-  const { toast } = useToast();
+  const { toast: uiToast2 } = useToast();
   const [recurringMeta, setRecurringMeta] = useState<RecurringMeta>({});
   const [newPotName, setNewPotName] = useState('');
   const [newPotAmount, setNewPotAmount] = useState<number>(0);
@@ -655,9 +467,36 @@ const Index = () => {
   const [bankInfoA, setBankInfoA] = useState<BankInfo | undefined>(undefined);
   const [bankInfoB, setBankInfoB] = useState<BankInfo | undefined>(undefined);
   const [householdBannerId, setHouseholdBannerId] = useState<string | null>(null);
+  const [showGuestHint, setShowGuestHint] = useState(false);
+  const guestMenuRef = useRef<HTMLButtonElement | null>(null);
+  const [hintCenter, setHintCenter] = useState<{ x: number; y: number } | null>(null);
 
   // Expose a snapshot saver globally so header menu can save a complete migration state right before auth
   useEffect(() => {
+    // Show guest hint overlay if requested by landing page
+    (async () => {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const isSignedIn = !!data?.session;
+        if (!isSignedIn) {
+          const flag = sessionStorage.getItem('show_guest_hint');
+          if (flag === '1') {
+            sessionStorage.removeItem('show_guest_hint');
+            setShowGuestHint(true);
+            const duration = 4000;
+            try {
+              sonnerToast('Guest mode enabled', {
+                description: 'You have 24 hours. Open the menu to save progress any time.',
+                duration,
+                onDismiss: () => setShowGuestHint(false),
+              });
+            } catch {}
+            try { setTimeout(() => setShowGuestHint(false), duration + 200); } catch {}
+          }
+        }
+      } catch {}
+    })();
+
     (window as any).__saveJourneySnapshot = async () => {
       try {
         const persons = (() => {
@@ -710,6 +549,30 @@ const Index = () => {
     };
     return () => { try { delete (window as any).__saveJourneySnapshot; } catch {} };
   }, [state]);
+
+  // While the hint is visible, track the hamburger button position and center the cutout over it
+  useEffect(() => {
+    if (!showGuestHint) return;
+    const measure = () => {
+      try {
+        const el = guestMenuRef.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        setHintCenter({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+      } catch {}
+    };
+    measure();
+    const onResize = () => measure();
+    const onScroll = () => measure();
+    window.addEventListener('resize', onResize);
+    window.addEventListener('scroll', onScroll, true);
+    const t = setInterval(measure, 250);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('scroll', onScroll, true);
+      clearInterval(t);
+    };
+  }, [showGuestHint]);
 
   // Helper: cycles per month for presenting monthly-equivalents
   const cyclesPerMonth = (freq?: string) => {
@@ -2250,6 +2113,10 @@ const Index = () => {
           householdOpen={householdOpen}
           setHouseholdOpen={setHouseholdOpen}
           onManageBankConnections={handleManageBankConnections}
+          showGuestHint={showGuestHint}
+          setShowGuestHint={setShowGuestHint}
+          menuRef={guestMenuRef}
+          hintCenter={hintCenter}
         />
 
         {/* Trial banner for signed-in users */}

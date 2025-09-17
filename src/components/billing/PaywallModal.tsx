@@ -25,7 +25,7 @@ export function PaywallModal() {
     <Dialog open={open}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Continue with Fair Balance Buddy</DialogTitle>
+          <DialogTitle>Continue with FairSplit</DialogTitle>
           <DialogDescription>
             Your free trial has ended. Upgrade to keep your data and access all features.
           </DialogDescription>
@@ -46,4 +46,3 @@ export function PaywallModal() {
 }
 
 export default PaywallModal;
-

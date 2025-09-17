@@ -111,6 +111,13 @@ function App() {
               } else {
                 await loadNormalizedData();
               }
+              // After successful sign-in, direct users to the app
+              try {
+                const p = window.location.pathname;
+                if (p === '/' || p === '' || p === '/index.html') {
+                  window.location.href = '/app';
+                }
+              } catch {}
             }
           } catch {}
         } else if (hasHashTokens) {
@@ -132,6 +139,12 @@ function App() {
               } else {
                 await loadNormalizedData();
               }
+              try {
+                const p = window.location.pathname;
+                if (p === '/' || p === '' || p === '/index.html') {
+                  window.location.href = '/app';
+                }
+              } catch {}
             } catch {}
           }
         }
@@ -170,13 +183,19 @@ function App() {
 
     // If user signs in and a guest journey exists → migrate it
     const sub = supabase.auth.onAuthStateChange(async (evt, session) => {
-      if (evt === 'SIGNED_IN' || evt === 'INITIAL_SESSION') {
+      if ((evt === 'SIGNED_IN' || evt === 'INITIAL_SESSION') && session) {
         await ensureHouseholdInSession();
         const migrated = await migrateJourneyToHousehold();
         if (migrated) {
           await loadNormalizedData();
           try { window.dispatchEvent(new CustomEvent('journey:migrated', { detail: { household_id: migrated } } as any)); } catch {}
         }
+        try {
+          const p = window.location.pathname;
+          if (p === '/' || p === '' || p === '/index.html') {
+            window.location.href = '/app';
+          }
+        } catch {}
       }
     });
     return () => { try { sub.data.subscription.unsubscribe(); } catch {} };

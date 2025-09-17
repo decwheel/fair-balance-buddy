@@ -52,7 +52,7 @@ export default function Account() {
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="font-medium">Subscribed</div>
-                    <div className="text-sm text-muted-foreground">Thanks for supporting Fair Balance Buddy.</div>
+                    <div className="text-sm text-muted-foreground">Thanks for supporting FairSplit.</div>
                   </div>
                   <Button onClick={onManage}>Manage billing</Button>
                 </div>
@@ -87,4 +87,3 @@ export default function Account() {
     </div>
   );
 }
-
